@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import io
+import re
 from pathlib import Path
 
+from rich.cells import cell_len
 from rich.console import Console
 
 from config.constants import PRODUCT_DISPLAY_NAME
@@ -12,6 +14,25 @@ from surfaces.interactive_shell.ui import poster as poster_module
 from surfaces.shared.terminal.banner import banner as banner_module
 from surfaces.shared.terminal.banner import banner_state as banner_state_module
 from surfaces.shared.terminal.banner.banner_state import LaunchStatus
+
+_ANSI_CONTROL = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+class _FakeTtyStdout:
+    """Records writes while reporting a TTY, like the REPL's stdout."""
+
+    def __init__(self) -> None:
+        self.writes: list[str] = []
+
+    def write(self, text: str) -> int:
+        self.writes.append(text)
+        return len(text)
+
+    def flush(self) -> None:
+        return None
+
+    def isatty(self) -> bool:
+        return True
 
 
 def _rgb(hex_color: str) -> str:
@@ -73,7 +94,7 @@ def test_launch_banner_is_borderless_centered_hero(monkeypatch: object) -> None:
 def test_launch_banner_centers_each_row_independently(monkeypatch: object) -> None:
     """Short rows (version) must share the same center axis as the wordmark.
 
-    Bundling unequal lines into one ``Align.center`` left-aligns shorts inside
+    Bundling unequal lines into one centered block left-aligns shorts inside
     the widest line — the school-project look vs Droid.
     """
     monkeypatch.setattr(banner_module, "load_launch_status", _fixed_status)
@@ -85,14 +106,34 @@ def test_launch_banner_centers_each_row_independently(monkeypatch: object) -> No
     rows = _line_centers(plain, width=width)
     assert rows, "banner must paint at least one row"
 
-    def _center_col(body: str, lead: int) -> float:
-        return lead + (len(body) / 2)
+    centers = [lead + len(body) / 2 for body, lead, _trail in rows]
+    # Integer centering leaves at most a half-cell gap between odd and even rows.
+    assert max(centers) - min(centers) <= 1.0, list(zip([r[0] for r in rows], centers))
 
-    centers = [_center_col(body, lead) for body, lead, _trail in rows]
-    mid = width / 2
-    # Every content row's midpoint should sit near the terminal midline.
-    for body, center in zip([r[0] for r in rows], centers, strict=True):
-        assert abs(center - mid) <= 2.0, (body, center, mid)
+
+def test_launch_banner_and_spin_rows_fit_the_reflow_safe_width(monkeypatch: object) -> None:
+    """Every banner and spin row stays inside the capped block, without padding.
+
+    The terminal owns the banner once printed and rewraps any row wider than a
+    later, narrower window, splitting it across both screen edges.
+    """
+    monkeypatch.setattr(banner_module, "load_launch_status", _fixed_status)
+    monkeypatch.setattr(banner_module, "get_opensre_version", lambda: "0.1.2026.9.2+main.abc1234")
+    cap = banner_module._BANNER_MAX_WIDTH
+    for width in (40, 80, 160, 300):
+        console = Console(record=True, force_terminal=False, highlight=False, width=width)
+        console.print(banner_module.build_launch_banner(console))
+        rows = console.export_text(styles=False).splitlines()
+        assert all(row == row.rstrip() for row in rows), width
+        assert max(cell_len(row) for row in rows) <= min(width - 1, cap), width
+
+    fake_stdout = _FakeTtyStdout()
+    monkeypatch.setattr("sys.stdout", fake_stdout)
+    monkeypatch.setattr(banner_module.time, "sleep", lambda _delay: None)
+    console = Console(file=fake_stdout, force_terminal=True, highlight=False, width=300)
+    banner_module.animate_launch_wordmark(console)
+    painted = _ANSI_CONTROL.sub("", "".join(fake_stdout.writes)).split("\r\n")
+    assert max(cell_len(row) for row in painted) <= cap
 
 
 def test_launch_banner_draws_ring_logo_on_wide_terminals(monkeypatch: object) -> None:
@@ -121,21 +162,7 @@ def test_wordmark_spin_frames_complete_a_full_revolution() -> None:
 
 
 def test_launch_banner_spins_once_in_place_on_tty(monkeypatch: object) -> None:
-    class _FakeStdout:
-        def __init__(self) -> None:
-            self.writes: list[str] = []
-
-        def write(self, text: str) -> int:
-            self.writes.append(text)
-            return len(text)
-
-        def flush(self) -> None:
-            return None
-
-        def isatty(self) -> bool:
-            return True
-
-    fake_stdout = _FakeStdout()
+    fake_stdout = _FakeTtyStdout()
     monkeypatch.setattr("sys.stdout", fake_stdout)
     monkeypatch.setattr(banner_module.time, "sleep", lambda _delay: None)
     monkeypatch.setattr(banner_module, "load_launch_status", _fixed_status)

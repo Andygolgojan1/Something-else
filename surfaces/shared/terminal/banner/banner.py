@@ -1,8 +1,8 @@
 """Launch banner shared by the CLI landing page and REPL.
 
-Droid-style centered hero: each row is centered independently (a single
-``Align.center`` on a multi-line block left-aligns short lines inside the
-widest line). Bold block wordmark + version + welcome + capability chips.
+Droid-style hero: each row is centered independently (one center over a
+multi-line block left-aligns short lines inside the widest line). Bold block
+wordmark + version + welcome + capability chips.
 """
 
 from __future__ import annotations
@@ -14,10 +14,8 @@ import threading
 import time
 from dataclasses import dataclass
 
-from rich.align import Align
 from rich.cells import cell_len
 from rich.console import Console, Group, RenderableType
-from rich.padding import Padding
 from rich.text import Text
 
 from config.constants import (
@@ -42,6 +40,11 @@ from surfaces.shared.terminal.components.rendering import _console_is_capturing
 from surfaces.shared.terminal.prompt_layout import clip_prompt_text
 
 _BANNER_VERTICAL_PADDING = 1
+#: Widest row the banner and its startup spin paint. Once printed, the banner
+#: belongs to the terminal, which rewraps any row wider than a later, narrower
+#: window and splits it across both screen edges. Rows are centered inside this
+#: block at the left margin, so they survive any shrink down to it.
+_BANNER_MAX_WIDTH = 56
 
 #: Version prefix under the wordmark.
 _VERSION_PREFIX = "v"
@@ -104,9 +107,19 @@ class WordmarkSpinFrame:
     back_facing: bool
 
 
-def _center(renderable: RenderableType) -> Align:
-    """Center one row/block on its own — do not bundle unequal-width lines."""
-    return Align.center(renderable)
+def _banner_width(console_width: int) -> int:
+    """Width of the block the banner and its spin are centered in."""
+    # Leave one column empty so no row soft-wraps on the last cell.
+    return max(min(console_width - 1, _BANNER_MAX_WIDTH), 1)
+
+
+def _center_rows(text: Text, console: Console, *, width: int) -> list[Text]:
+    """Wrap ``text`` to ``width`` and center each row in it, without right padding."""
+    rows = text.wrap(console, width)
+    for row in rows:
+        row.rstrip()
+        row.pad_left(max((width - row.cell_len) // 2, 0))
+    return list(rows)
 
 
 def _braille_dot_columns(row: str) -> list[int]:
@@ -245,7 +258,7 @@ def animate_launch_wordmark(
             stream.write(
                 _animation_frame(
                     frame,
-                    width=console.width,
+                    width=_banner_width(console.width),
                     rewind=index > 0,
                 )
             )
@@ -300,7 +313,7 @@ def _build_welcome_title() -> Text:
 
 def _build_welcome_paragraph() -> Text:
     """One-sentence product description, wrapped and centered (not clipped)."""
-    return Text(WELCOME_DESCRIPTION, style=str(TEXT), justify="center")
+    return Text(WELCOME_DESCRIPTION, style=str(TEXT))
 
 
 def _build_capabilities(status: LaunchStatus, *, max_width: int) -> Text:
@@ -334,7 +347,7 @@ def build_launch_banner(
     *,
     session: object = None,
 ) -> RenderableType:
-    """Build the centered, borderless OpenSRE launch banner."""
+    """Build the borderless OpenSRE launch banner, centered in a width-capped block."""
     del session  # Reserved for future session-scoped launch indicators.
     console = console or Console(
         highlight=False,
@@ -343,24 +356,27 @@ def build_launch_banner(
         legacy_windows=False,
     )
     status = load_launch_status()
-    width = console.width
-    # Leave one column empty so the banner never soft-wraps on the last cell.
-    line_width = max(width - 1, 1)
+    width = _banner_width(console.width)
     # Rows top-to-bottom (``None`` is a blank spacer). Each is centered on its
-    # own axis in the loop below — one Align.center over a multi-line block
-    # would left-align the short lines inside the widest one.
-    rows: list[RenderableType | None] = [
-        _build_wordmark(console_width=width),
+    # own axis below — one center over a multi-line block would left-align the
+    # short lines inside the widest one.
+    rows: list[Text | None] = [
+        _build_wordmark(console_width=console.width),
         None,
         _build_version_line(),
         None,
         _build_welcome_title(),
         _build_welcome_paragraph(),
         None,
-        _build_capabilities(status, max_width=line_width),
+        _build_capabilities(status, max_width=width),
     ]
-    body: RenderableType = Group(*(Text() if row is None else _center(row) for row in rows))
-    return Padding(body, (_BANNER_VERTICAL_PADDING, 0))
+    blank_rows = [Text() for _ in range(_BANNER_VERTICAL_PADDING)]
+    body = [
+        line
+        for row in rows
+        for line in ([Text()] if row is None else _center_rows(row, console, width=width))
+    ]
+    return Group(*blank_rows, *body, *blank_rows)
 
 
 def render_launch_banner(
