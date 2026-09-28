@@ -48,6 +48,7 @@ from infrastructure.analytics.distribution import detect_distribution
 from infrastructure.analytics.events import Event
 from infrastructure.analytics.install_delivery import persist_observation
 from infrastructure.analytics.install_state import read_install_marker_state
+from infrastructure.analytics.runner_provenance import execution_evidence
 from infrastructure.analytics.source import is_test_run
 from infrastructure.analytics.usage_context import (
     ORGANIZATION_GROUP_TYPE,
@@ -1052,6 +1053,7 @@ class Analytics:
             with httpx.Client(
                 timeout=_SEND_TIMEOUT,
                 trust_env=False,
+                follow_redirects=False,
             ) as client:
                 while True:
                     item = self._queue.get()
@@ -1086,6 +1088,14 @@ class Analytics:
             "$lib": "opensre-cli",
             "identity_persistence": self._identity_persistence,
         }
+        endpoint_url = item.destination.endpoint_url if item.destination is not None else ""
+        execution_properties, _execution_headers = execution_evidence(
+            self._anonymous_id,
+            endpoint_url=endpoint_url,
+            is_ci=properties.get("is_ci") is True,
+            is_container=properties.get("is_container") is True,
+        )
+        properties.update(execution_properties)
         insert_id = _event_insert_id(
             item.event,
             self._anonymous_id,
@@ -1125,6 +1135,14 @@ class Analytics:
         properties = payload["properties"]
         if isinstance(properties, dict):
             _log_event_line(item.event, properties)
+        else:
+            properties = {}
+        _, execution_headers = execution_evidence(
+            self._anonymous_id,
+            endpoint_url=destination.endpoint_url,
+            is_ci=properties.get("is_ci") is True,
+            is_container=properties.get("is_container") is True,
+        )
         if len(body) > ANALYTICS_MAX_PAYLOAD_BYTES:
             _log_failure(
                 "analytics_send",
@@ -1138,7 +1156,7 @@ class Analytics:
             response = client.post(
                 destination.endpoint_url,
                 content=body,
-                headers=destination.headers(body),
+                headers=destination.headers(body) | execution_headers,
             )
             if response.status_code != HTTPStatus.ACCEPTED:
                 raise httpx.HTTPStatusError(

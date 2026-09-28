@@ -17,6 +17,7 @@ import httpx
 from config.account import AccountRecord, save_account_record, save_account_token
 from config.constants.analytics import (
     ANALYTICS_CICD_ENV,
+    ANALYTICS_RUNNER_TOKEN_HEADER,
     ANALYTICS_SIGNATURE_HEADER,
     ANALYTICS_TIMESTAMP_HEADER,
 )
@@ -35,7 +36,7 @@ def main() -> None:
     captured: list[dict[str, object]] = []
 
     def receive(request: httpx.Request) -> httpx.Response:
-        assert str(request.url) == "https://integrity.invalid/api/analytics/events"
+        assert str(request.url) == os.environ["OPENSRE_APP_URL"] + "/api/analytics/events"
         auth = request.headers.get("Authorization", "")
         kind = "anonymous"
         if auth:
@@ -49,7 +50,14 @@ def main() -> None:
             assert request.headers[ANALYTICS_SIGNATURE_HEADER] == f"v1={expected}"
             assert token.encode() not in request.content
         payload = json.loads(request.content)
-        captured.append({"payload": payload, "auth_kind": kind, "signature_valid": bool(auth)})
+        captured.append(
+            {
+                "payload": payload,
+                "auth_kind": kind,
+                "signature_valid": bool(auth),
+                "runner_token_present": bool(request.headers.get(ANALYTICS_RUNNER_TOKEN_HEADER)),
+            }
+        )
         status = HTTPStatus.SERVICE_UNAVAILABLE if scenario == "reject" else HTTPStatus.ACCEPTED
         return httpx.Response(status, json={"accepted": status == HTTPStatus.ACCEPTED})
 

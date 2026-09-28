@@ -29,6 +29,11 @@ ANALYTICS_SOURCE: Final[str] = "opensre_runtime"
 ANALYTICS_SIGNATURE_HEADER: Final[str] = "X-OpenSRE-Signature"
 ANALYTICS_SIGNATURE_VERSION: Final[str] = "v1"
 ANALYTICS_TIMESTAMP_HEADER: Final[str] = "X-OpenSRE-Timestamp"
+ANALYTICS_RUNNER_TOKEN_HEADER: Final[str] = "X-OpenSRE-Runner-Token"
+ANALYTICS_EXECUTION_CONTEXT_ENV: Final[str] = "OPENSRE_EXECUTION_CONTEXT_PATH"
+ANALYTICS_EXECUTION_CONTEXT_PATH: Final[str] = "/run/opensre/execution-context.json"
+ANALYTICS_RUNNER_INGEST_URL: Final[str] = "https://app.opensre.com/api/analytics/events"
+ANALYTICS_RUNNER_AUDIENCE: Final[str] = "https://app.opensre.com/analytics/runner/"
 
 __all__ = [
     "ANALYTICS_CICD_ENV",
@@ -49,5 +54,10 @@ __all__ = [
     "ANALYTICS_SIGNATURE_VERSION",
     "ANALYTICS_SOURCE",
     "ANALYTICS_TIMESTAMP_HEADER",
+    "ANALYTICS_RUNNER_TOKEN_HEADER",
+    "ANALYTICS_EXECUTION_CONTEXT_ENV",
+    "ANALYTICS_EXECUTION_CONTEXT_PATH",
+    "ANALYTICS_RUNNER_AUDIENCE",
+    "ANALYTICS_RUNNER_INGEST_URL",
     "ANALYTICS_TEST_ENV",
 ]

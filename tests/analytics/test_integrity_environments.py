@@ -16,7 +16,14 @@ _REPO = Path(__file__).resolve().parents[2]
 
 
 def run_process(
-    root: Path, scenario: str = "start", *, ci: bool = False, silo: bool = False, cicd: bool = False
+    root: Path,
+    scenario: str = "start",
+    *,
+    ci: bool = False,
+    silo: bool = False,
+    cicd: bool = False,
+    execution_context: Path | None = None,
+    app_url: str = "https://integrity.invalid",
 ) -> dict[str, Any]:
     # Keep OS process-launch variables, but never inherit developer credentials,
     # analytics destinations, or home-store overrides into this subprocess.
@@ -38,7 +45,7 @@ def run_process(
             "OPENSRE_HOME": str(root),
             "OPENSRE_WIZARD_STORE_PATH": str(root / "opensre.json"),
             "OPENSRE_ACCOUNT_METADATA_PATH": str(root / "account.json"),
-            "OPENSRE_APP_URL": "https://integrity.invalid",
+            "OPENSRE_APP_URL": app_url,
             "OPENSRE_DISABLE_KEYRING": "0",
             "OPENSRE_SENTRY_DISABLED": "1",
             "OPENSRE_LANGFUSE_DISABLED": "1",
@@ -46,6 +53,8 @@ def run_process(
     )
     if ci:
         env["GITHUB_ACTIONS"] = "true"
+    if execution_context is not None:
+        env["OPENSRE_EXECUTION_CONTEXT_PATH"] = str(execution_context)
     if cicd:
         env["OPENSRE_CICD"] = "1"
     if silo:
@@ -68,6 +77,40 @@ def run_process(
     result: dict[str, Any] = json.loads(completed.stdout)
     assert result["requests"], completed.stderr
     return result
+
+
+def test_runner_context_survives_stripped_ci_environment(tmp_path: Path) -> None:
+    root = tmp_path / "profile"
+    root.mkdir()
+    identity = "84f31ef1-8334-4a04-993b-6bc090635fcf"
+    (root / "anonymous_id").write_text(identity)
+    context = tmp_path / "execution-context.json"
+    context.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "analytics_id": identity,
+                "execution_origin": "github_actions",
+                "token": "fixture_token",
+            }
+        )
+    )
+    result = run_process(root, execution_context=context, app_url="https://app.opensre.com")
+    for request in result["requests"]:
+        properties = request["payload"]["properties"]
+        assert properties["is_ci"] is True
+        assert properties["automation_status"] == "reported"
+        assert properties["execution_origin"] == "github_actions"
+        assert request["runner_token_present"] is True
+        assert "fixture_token" not in json.dumps(request["payload"])
+    custom = run_process(root, execution_context=context)
+    assert not any(r["runner_token_present"] for r in custom["requests"])
+    context.unlink()
+    restarted = run_process(root, execution_context=context)
+    assert all(
+        r["payload"]["properties"]["automation_status"] == "unknown" for r in restarted["requests"]
+    )
+    assert not any(r["runner_token_present"] for r in restarted["requests"])
 
 
 def installs(result: dict[str, Any]) -> list[dict[str, Any]]:

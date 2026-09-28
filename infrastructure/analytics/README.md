@@ -94,6 +94,7 @@ Every product event includes:
 | `execution_environment` | `local`, `ci`, `container`, `ci_container`, or `unknown`; a detector classification. |
 | `is_ci`, `is_container`, `container_runtime` | Recognized runtime signals, not human verification. Unknown measurements are omitted. |
 | `ci_detection_status`, `container_detection_status` | `detected`, `not_detected`, or `unknown`. |
+| `automation_status`, `execution_origin` | Reported automation or unknown origin; ingestion upgrades authenticated runner evidence to `confirmed`. |
 | `distribution` | `source_checkout`, `editable_package`, `installed_package`, `frozen_binary`, or `unknown`, based on the code loaded by this process. |
 | `is_test` | Explicit `OPENSRE_IS_TEST=1` (also `true`/`yes`), a detected test runner, or CI. Independent of distribution. |
 | `composite_fingerprint` | One-way local fingerprint used only when no account identity exists. |
@@ -201,6 +202,12 @@ recorded installations.
 
 ## Product metrics
 
+Eligible installation observations exclude synthetic/test identities and every
+identity with confirmed or reported automation in retained runtime history.
+Remaining identities have unknown origin: these are observed installations, not
+a measured human acquisition denominator. Report their conversion separately
+from verified account metrics and show automation counts alongside them.
+
 The first dashboard should keep personal-user and gateway-organization grains
 separate. Anonymous IDs are a fallback only for pre-login acquisition:
 
@@ -210,11 +217,11 @@ must be calculated from `analytics_product_events`.
 
 | Metric | Definition |
 | --- | --- |
-| Install-to-signup conversion | Non-CI installations whose first server-verified account link resolves to a Clerk signup created between install and first authentication, divided by all non-CI installations. |
+| Install-to-signup conversion | Eligible installation observations whose first server-verified account link resolves to a Clerk signup created between install and first authentication, divided by all eligible installation observations. |
 | Personal activation | Server-resolved users whose linked installation reaches `onboard_completed`, then records a completed, captured AI response with an observed LLM attempt and no error. Legacy events require a real model/provider and non-synthetic output. |
 | Gateway activation | Authenticated organizations with an answered `gateway_turn_completed`; do not count gateway actor IDs as users. |
-| Onboarding conversion | Distinct non-CI installations completed, and distinct installations failed, each divided separately by distinct installations started. |
-| Personal DAU / WAU / MAU | Distinct server-resolved users with personal-bearer `cli_invoked` or `$ai_generation` events in the window. |
+| Onboarding conversion | Distinct eligible installation observations completed, and distinct installations failed, each divided separately by distinct installations started. |
+| Personal DAU / WAU / MAU | Distinct server-resolved users with a personal-bearer `cli_command_opensre…` (historically `cli_invoked`) or `$ai_generation` in the requested window. |
 | Organization DAU / WAU / MAU | Distinct authenticated organizations with gateway activity in the window, reported separately. |
 | D1 / D7 / D30 retention | Personally activated users with another qualifying personal event on the target day/window; compute organization retention separately. |
 | Answer rate | Completed gateway turns with `answered=true` divided by completed gateway turns. |
@@ -228,10 +235,12 @@ must be calculated from `analytics_product_events`.
 | Scheduled-work reliability | Completed vs failed scheduled tasks by task kind and provider. |
 | Feature adoption | Personal users by CLI/AI feature and organizations by gateway surface, without combining identity grains. |
 
-Report CI detection independently from actor identity. A non-CI metric requires
-an explicitly recorded Boolean `is_ci=false`; missing evidence stays unknown.
-An audience may deliberately include unknown traffic, but neither inclusion
-nor a negative detector result proves that a human initiated the run.
+Separate verified/reported automation from unknown-origin installation observations, and keep
+it available for automation usage reporting. Report CI detection independently
+from actor identity. A non-CI metric requires an explicitly recorded Boolean
+`is_ci=false`; missing evidence stays unknown. An audience may deliberately
+include unknown traffic, but neither inclusion nor a negative detector result
+proves that a human initiated the run.
 
 ## Privacy and failure behavior
 
