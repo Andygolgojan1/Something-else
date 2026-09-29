@@ -333,6 +333,9 @@ if TYPE_CHECKING:
         DATADOG_SITE_ENV as DATADOG_SITE_ENV,
     )
     from config.constants.environment import (
+        CONTAINER_SUPERVISOR_PID_ENV as CONTAINER_SUPERVISOR_PID_ENV,
+    )
+    from config.constants.environment import (
         DEPLOYMENT_ENV_ENV as DEPLOYMENT_ENV_ENV,
     )
     from config.constants.filestorage import (

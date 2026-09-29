@@ -16,11 +16,11 @@ _SKILL = "delegating-github-ci-repairs"
 _DEMO = "Use a disposable demo repository"
 _REPORT = "Task repair-1 succeeded remotely: failing run 1, repair commit abc, passing run 2."
 _REQUEST = {
-    "prompt": "Use operating-github-ci-repairs on this gateway for the selected private demo.",
-    "facts": {"demo": "true"},
+    "prompt": "Use scheduling-github-ci-repairs on this gateway for the selected private demo.",
+    "facts": {"demo": "true", "owner": "Tracer-Cloud"},
 }
 _OBSERVE = {
-    "prompt": "Use operating-github-ci-repairs to inspect and wait for task repair-1 only.",
+    "prompt": "Inspect and wait for hosted task repair-1 only.",
     "facts": {"task_id": "repair-1"},
 }
 
@@ -148,7 +148,7 @@ def test_missing_gateway_skill_reports_blocker_before_recovery_menu(
 ) -> None:
     monkeypatch.setenv(OPENSRE_MEMORY_AUTOEXTRACT_DISABLED_ENV, "1")
     monkeypatch.setenv(OPENSRE_MEMORY_DIR_ENV, str(tmp_path / "memory"))
-    report = "Gateway version mismatch: operating-github-ci-repairs is unavailable; no task exists."
+    report = "Gateway version mismatch: scheduling-github-ci-repairs is unavailable; no task exists."
     blocked = _plan(1, 3, known_target=True)
     blocked["explanation"] = report
     blocked["plan"][1]["status"] = "blocked"

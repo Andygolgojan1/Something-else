@@ -348,7 +348,7 @@ jobs:
 
       - name: Install binary build dependencies
         shell: bash
-        run: uv sync --frozen --extra release-binary
+        run: uv sync --frozen --extra release-binary --extra postgresql
 
       - name: Build binary
         env:

@@ -92,7 +92,7 @@ _REFUSED_ERROR = "Could not schedule CI repair: the pull request was refused."
             },
             "owner": {
                 "type": "string",
-                "description": "Explicit owner or organization; demo defaults to authenticated user.",
+                "description": "GitHub user or organization that owns the repository.",
             },
             "repo": {
                 "type": "string",
@@ -104,6 +104,7 @@ _REFUSED_ERROR = "Could not schedule CI repair: the pull request was refused."
                 "description": "Existing PR to repair; omitted in demo mode.",
             },
         },
+        "required": ["owner"],
         "additionalProperties": False,
     },
 )

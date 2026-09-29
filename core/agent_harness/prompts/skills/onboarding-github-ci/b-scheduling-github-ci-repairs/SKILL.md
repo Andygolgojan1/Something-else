@@ -76,9 +76,11 @@ Two calls, one per response:
 
 Use the repository already named by the user and skip the rest of this step.
 Otherwise, two calls, one per response:
+
 **find what is red right now**
 - `scan_github_ci_health()` — every repository of the user's account and
   organizations, default branch and open PRs only. Read `failing_prs`;
+
 **ask once**
 - `ask_user_choice` titled "CI Repair Target": "Private disposable demo
   repository" first (recommended), then one option per repository that
@@ -98,10 +100,8 @@ it without a second GitHub read.
 ### Step 3. Select the failure scenario
 
 **Existing repository**
-- `summarize_github_pr_status(owner, repo, state="open",
-  include_checks=true)`
-- pick the user's PR, or the first PR with a failing
-  check
+- `summarize_github_pr_status(owner, repo, state="open", include_checks=true)`
+- pick the user's PR, or the first PR with a failing check
 - do not use forked repository PRs, they will not work.
 - If none is failing, the loop still starts in Step 6 and Step 7 is
   skipped.

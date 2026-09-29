@@ -110,7 +110,7 @@ def schedule_repair(
     user = object_response(GitHubRestClient(token).request("GET", "user"))
     actor_id = account_id(user)
     actor = _component(str(user.get("login") or ""))
-    owner = _component(owner.strip() or actor)
+    owner = _component(owner.strip())
     if demo:
         if pr_number or repo and repo != GITHUB_CI_DEMO_REPOSITORY:
             raise RepairRefused(

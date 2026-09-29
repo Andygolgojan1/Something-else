@@ -38,11 +38,6 @@ SUCCESS_CRITERIA: dict[str, tuple[str, ...]] = {
     "operating-github-ci-fixer": (
         "`fix_github_pr_ci` returns `checks_state` `passed`, or `error_kind` after repairs stop.",
     ),
-    "operating-github-ci-repairs": (
-        "`get_ci_repair_loop` returns the selected `task_id`, `status`, `terminal`, and retained "
-        "`response_text`, or the reply reports the tool's concrete blocker.",
-        "The reply distinguishes pending work from `terminal` failure and verified repair success.",
-    ),
     "operating-github-cli": (
         "`github_cli` returns the pull request or issue data the user asked for.",
     ),

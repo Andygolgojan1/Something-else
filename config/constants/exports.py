@@ -144,6 +144,7 @@ EXPORTS: dict[str, str] = {
     "DATADOG_APP_KEY_ENV": "datadog",
     "DATADOG_SITE_ENV": "datadog",
     # environment
+    "CONTAINER_SUPERVISOR_PID_ENV": "environment",
     "DEPLOYMENT_ENV_ENV": "environment",
     # filestorage
     "BLOB_READ_WRITE_TOKEN_ENV": "filestorage",

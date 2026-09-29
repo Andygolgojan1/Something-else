@@ -25,7 +25,7 @@ from config.constants.github import GITHUB_CI_DEMO_REPOSITORY
 from infrastructure.scheduling.scheduler.types import Provider, ScheduledTask, TaskKind
 from integrations.github.client import GitHubApiError
 from integrations.github.tools.ci_repair_loop import fixture, schedule, supervisor
-from integrations.github.tools.ci_repair_loop.models import RepairRun, RepairStatus
+from integrations.github.tools.ci_repair_loop.models import RepairRefused, RepairRun, RepairStatus
 from integrations.github.tools.ci_repair_loop.report import render_report
 from integrations.github.tools.ci_repair_loop.storage import RepairStore
 
@@ -325,11 +325,25 @@ def test_schedule_reuses_active_run_instead_of_resetting_deadline(
         return task
 
     monkeypatch.setattr(schedule, "add_task", add)
-    first, reused, _ = schedule.schedule_repair(demo=True, store=store)
-    second, reused_again, _ = schedule.schedule_repair(demo=True, store=store)
+    first, reused, _ = schedule.schedule_repair(demo=True, owner="alice", store=store)
+    second, reused_again, _ = schedule.schedule_repair(demo=True, owner="alice", store=store)
     assert not reused and reused_again
     assert first.id == second.id and first.deadline == second.deadline
+    assert first.owner == "alice"
     assert len(tasks) == 1 and next(iter(tasks.values())).cron == CI_REPAIR_CRON
+
+
+def test_schedule_refuses_when_owner_is_omitted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The token login is not a substitute for the owner the model must supply."""
+    monkeypatch.setattr(schedule, "configured_token", lambda _token: "test-token")
+    monkeypatch.setattr(schedule, "GitHubRestClient", lambda _token: _GitHub())
+    store = RepairStore(tmp_path)
+
+    with pytest.raises(RepairRefused, match="explicit GitHub owner"):
+        schedule.schedule_repair(demo=True, store=store)
+    assert store.newest_for(123) is None
 
 
 def test_failure_retains_diagnostics_and_report_contains_evidence_links(tmp_path: Path) -> None:
@@ -505,7 +519,7 @@ def test_real_cron_tick_saves_terminal_report_before_stopping_schedule(
     monkeypatch.setattr(schedule, "configured_token", lambda _token: "test-token")
     monkeypatch.setattr(schedule, "GitHubRestClient", lambda _token: _GitHub())
     monkeypatch.setattr(schedule, "ensure_background_service", lambda **_kw: None)
-    run, _, _ = schedule.schedule_repair(demo=True, store=store)
+    run, _, _ = schedule.schedule_repair(demo=True, owner="alice", store=store)
     run.status, run.reason = RepairStatus.TIMED_OUT, "Fixture runner reached its deadline."
     store.save(run)
     delivered = threading.Event()
@@ -1019,7 +1033,7 @@ def test_interrupted_registration_recovers_original_run(
         return task
 
     monkeypatch.setattr(schedule, "add_task", add)
-    resumed, reused, _ = schedule.schedule_repair(demo=True, store=store)
+    resumed, reused, _ = schedule.schedule_repair(demo=True, owner="alice", store=store)
     assert reused and resumed.id == original.id and resumed.deadline == original.deadline
     assert resumed.status is RepairStatus.QUEUED and len(tasks) == 1
 
@@ -1055,7 +1069,7 @@ def test_hosted_scheduler_registers_without_an_os_service(
     monkeypatch.setattr(schedule, "ensure_background_service", refuse)
 
     run, reused, next_run = schedule.schedule_repair(
-        demo=True, store=store, scheduler_in_process=True
+        demo=True, owner="alice", store=store, scheduler_in_process=True
     )
 
     assert not reused
@@ -1102,8 +1116,8 @@ def test_only_a_gateway_scheduled_loop_records_that_remote_monitoring_started(
     monkeypatch.setattr(schedule, "ensure_background_service", lambda **_kw: None)
 
     # Act: the second request reuses the active run, so monitoring did not start again
-    run, _, _ = schedule.schedule_repair(demo=True, store=store, scheduler_in_process=remote)
-    schedule.schedule_repair(demo=True, store=store, scheduler_in_process=remote)
+    run, _, _ = schedule.schedule_repair(demo=True, owner="alice", store=store, scheduler_in_process=remote)
+    schedule.schedule_repair(demo=True, owner="alice", store=store, scheduler_in_process=remote)
 
     # Assert
     assert store.get(run.id).remote is remote
@@ -1245,7 +1259,7 @@ def test_setup_exception_details_stay_out_of_persisted_reports(
         raise RuntimeError("secret-provider-internal-detail")
 
     monkeypatch.setattr(schedule, "ensure_background_service", fail_service)
-    run, _, _ = schedule.schedule_repair(demo=True, store=store)
+    run, _, _ = schedule.schedule_repair(demo=True, owner="alice", store=store)
     assert run.status is RepairStatus.FAILED
     assert "secret-provider-internal-detail" not in render_report(store.get(run.id), tmp_path)
 
