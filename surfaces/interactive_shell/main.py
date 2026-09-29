@@ -24,6 +24,7 @@ from surfaces.interactive_shell.runtime.startup.account_gate import (
     pass_sign_in_gate,
 )
 from surfaces.interactive_shell.runtime.startup.demo_picker import offer_demo
+from surfaces.interactive_shell.runtime.startup.github_sync import start_workspace_github_sync
 from surfaces.interactive_shell.runtime.startup.initial_input import run_initial_input
 from surfaces.interactive_shell.session import Session
 from surfaces.interactive_shell.ui.terminal_ui import render_terminal_ui
@@ -80,6 +81,7 @@ async def run_repl_async(
     runtime_context = create_repl_runtime(session=_new_shell_session())
     session = runtime_context.session
     session.terminal.cli_command_group = cli_command_group
+    start_workspace_github_sync(session)
 
     if initial_input:
         if after_banner is not None:

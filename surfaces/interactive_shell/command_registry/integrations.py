@@ -309,6 +309,25 @@ def _run_integrations_setup(session: Session, console: Console, args: list[str])
     return result
 
 
+def _run_workspace_sync(session: Session, console: Console) -> bool:
+    """Pull the workspace GitHub connection from the webapp and refresh the session."""
+    from integrations.github import describe_github_sync, sync_workspace_github
+
+    prepare_repl_output_line()
+    with console.status(f"[{DIM}]Syncing workspace integrations…[/]", spinner="dots"):
+        result = sync_workspace_github()
+    message = describe_github_sync(result)
+    ok = result.status not in {"signed_out", "unavailable"}
+    repl_print(console, escape(message) if ok else f"[{ERROR}]{escape(message)}[/]")
+    if result.changed:
+        session.refresh_integration_state()
+    if session_terminal(session) is None:
+        publish_headless_slash_response(session, message=message, ok=ok)
+    elif not ok:
+        session.mark_latest(ok=False, kind="slash")
+    return True
+
+
 def _cmd_integrations(session: Session, console: Console, args: list[str]) -> bool:
     if not args and repl_tty_interactive():
         return _interactive_integrations_menu(session, console)
@@ -339,6 +358,9 @@ def _cmd_integrations(session: Session, console: Console, args: list[str]) -> bo
 
     if sub == "remove":
         return _handle_remove(session, console, args[1] if len(args) > 1 else None)
+
+    if sub == "sync":
+        return _run_workspace_sync(session, console)
 
     if sub == "show":
         if len(args) < 2:
@@ -478,6 +500,7 @@ _INTEGRATIONS_FIRST_ARGS: tuple[tuple[str, str], ...] = (
     ("ls", "alias for list"),
     ("verify", "run health checks on all integrations"),
     ("show", "show details for a single integration"),
+    ("sync", "pull the GitHub connection from your OpenSRE workspace"),
 )
 
 _MCP_FIRST_ARGS: tuple[tuple[str, str], ...] = (
@@ -506,6 +529,7 @@ COMMANDS: list[SlashCommand] = [
             "/integrations verify <service>",
             "/integrations show <service>",
             "/integrations remove <service>",
+            "/integrations sync",
         ),
         notes=("In a TTY, bare /integrations opens an interactive menu.",),
         first_arg_completions=_INTEGRATIONS_FIRST_ARGS,

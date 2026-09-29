@@ -202,6 +202,48 @@ def _github_advanced_setup(credentials: dict[str, Any]) -> tuple[str, str]:
     return repo_view, repo_visibility
 
 
+def _use_workspace_github(ui: TerminalSetupUI) -> str | None:
+    """Offer the workspace's GitHub connection; return its login when the user takes it.
+
+    Returns ``None`` (fall through to sign-in) when signed out, the webapp has no
+    GitHub connection, the sync fails, or the user prefers a separate sign-in;
+    otherwise the login, which is "" when the webapp did not report one.
+    """
+    from integrations.github.workspace_sync import (
+        describe_github_sync,
+        fetch_workspace_github,
+        sync_workspace_github,
+    )
+    from integrations.store import remove_integration
+
+    payload = fetch_workspace_github()
+    if payload is None or payload.get("connected") is not True:
+        return None
+    username = str(payload.get("username") or "").strip()
+    label = f"@{username}" if username else "your workspace account"
+    choice = _select(
+        "Your OpenSRE workspace already has GitHub connected. Use it here?",
+        choices=[
+            questionary.Choice(
+                f"Use the workspace connection ({label}) — recommended", value="use"
+            ),
+            questionary.Choice("Sign in separately on this machine", value="separate"),
+        ],
+        default="use",
+    )
+    if choice is None:
+        print("\nAborted.")
+        sys.exit(1)
+    if choice != "use":
+        return None
+    remove_integration("github")
+    result = sync_workspace_github()
+    ui.say(describe_github_sync(result))
+    if result.status not in {"connected", "updated", "unchanged"}:
+        return None
+    return result.username or username
+
+
 def setup_github() -> str | None:
     """Configure + validate + save the GitHub MCP integration.
 
@@ -231,6 +273,9 @@ def setup_github() -> str | None:
     from integrations.setup_flow import apply_setup
 
     ui = TerminalSetupUI()
+    workspace_login = _use_workspace_github(ui)
+    if workspace_login is not None:
+        return workspace_login
     ui.say("I'll guide you through three steps. Press Ctrl+C at any time to cancel.")
     ui.step("one", "Sign in to GitHub")
     print("  Connect OpenSRE to your GitHub repositories.")
