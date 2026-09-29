@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 from email.message import Message
+from http import HTTPStatus
 from pathlib import Path
 from urllib import error
 
@@ -37,7 +38,7 @@ def _headers(**values: str) -> Message:
 
 def test_org_that_restricts_oauth_apps_points_at_the_grant_page() -> None:
     issue = classify_github_access_failure(
-        status_code=403,
+        status_code=HTTPStatus.FORBIDDEN,
         message="Although you appear to have the correct authorization credentials, the "
         "`acme` organization has enabled OAuth App access restrictions",
         path="/repos/acme/api",
@@ -56,7 +57,7 @@ def test_org_that_restricts_oauth_apps_points_at_the_grant_page() -> None:
 def test_saml_enforcement_uses_the_sso_url_github_sends() -> None:
     sso_url = "https://github.com/orgs/acme/sso?authorization_request=XYZ"
     issue = classify_github_access_failure(
-        status_code=403,
+        status_code=HTTPStatus.FORBIDDEN,
         message="Resource protected by organization SAML enforcement.",
         headers=_headers(X_GitHub_SSO=f"required; url={sso_url}"),
         path="/repos/acme/api/pulls",
@@ -71,7 +72,7 @@ def test_fine_grained_token_without_scope_header_is_not_a_missing_scope() -> Non
     # Fine-grained PATs never send X-OAuth-Scopes; treating the absent header as
     # "no scopes" would tell the user to reconnect instead of widening repo access.
     issue = classify_github_access_failure(
-        status_code=403,
+        status_code=HTTPStatus.FORBIDDEN,
         message="Resource not accessible by personal access token",
         headers=_headers(X_Accepted_OAuth_Scopes="repo"),
         path="/repos/acme/api/actions/runs",
@@ -85,7 +86,7 @@ def test_fine_grained_token_without_scope_header_is_not_a_missing_scope() -> Non
 
 def test_oauth_token_lacking_the_accepted_scope_asks_to_reconnect() -> None:
     issue = classify_github_access_failure(
-        status_code=403,
+        status_code=HTTPStatus.FORBIDDEN,
         message="Must have admin rights to Repository.",
         headers=_headers(X_Accepted_OAuth_Scopes="workflow", X_OAuth_Scopes="repo, read:org"),
         path="/repos/acme/api/actions/workflows",
@@ -101,7 +102,7 @@ def test_oauth_token_lacking_the_accepted_scope_asks_to_reconnect() -> None:
 def test_rest_error_text_carries_the_fix_to_every_tool() -> None:
     http_error = error.HTTPError(
         "https://api.github.com/repos/acme/private",
-        404,
+        HTTPStatus.NOT_FOUND,
         "Not Found",
         _headers(),
         io.BytesIO(b""),
@@ -136,7 +137,9 @@ def test_mcp_failure_payload_tells_the_agent_to_ask_the_user() -> None:
 def test_missing_file_is_not_reported_as_missing_access() -> None:
     assert (
         classify_github_access_failure(
-            status_code=404, message="Not Found", path="/repos/acme/api/contents/docs/x.md"
+            status_code=HTTPStatus.NOT_FOUND,
+            message="Not Found",
+            path="/repos/acme/api/contents/docs/x.md",
         )
         is None
     )
@@ -158,7 +161,7 @@ def test_workspace_permissions_page_is_the_one_the_agent_opens() -> None:
     )
 
     issue = classify_github_access_failure(
-        status_code=403,
+        status_code=HTTPStatus.FORBIDDEN,
         message="OAuth App access restrictions",
         path="/repos/acme/api",
         token="gho_workspace",
@@ -171,7 +174,7 @@ def test_workspace_permissions_page_is_the_one_the_agent_opens() -> None:
 def test_unrelated_failure_is_left_alone() -> None:
     assert (
         classify_github_access_failure(
-            status_code=502, message="Bad gateway", path="/repos/acme/api"
+            status_code=HTTPStatus.BAD_GATEWAY, message="Bad gateway", path="/repos/acme/api"
         )
         is None
     )
@@ -203,3 +206,18 @@ def test_push_denied_names_the_repository_to_grant() -> None:
     assert issue.kind == "repository_access"
     assert (issue.owner, issue.repo) == ("acme", "api")
     assert issue.permissions_url == github_oauth_app_permissions_url()
+
+
+def test_mcp_error_without_the_api_url_still_gets_guidance() -> None:
+    payload = normalize_github_tool_result(
+        {
+            "is_error": True,
+            "text": "failed to list pull requests for acme/api: 403 Forbidden "
+            "Resource not accessible by integration",
+            "tool": "list_pull_requests",
+            "arguments": {},
+        }
+    )
+
+    assert payload["action_required"] == GITHUB_PERMISSIONS_ACTION
+    assert payload["access_issue"] == "repository_access"

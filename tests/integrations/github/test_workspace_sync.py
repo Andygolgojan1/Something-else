@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from http import HTTPStatus
 from typing import Any
 
 import httpx
@@ -34,7 +35,7 @@ def _signed_in(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
 def _webapp(payload: dict[str, Any]) -> Any:
     def _get(url: str, **_kwargs: Any) -> httpx.Response:
         assert url == "https://app.example.com/api/auth/cli/integrations/github"
-        return httpx.Response(200, json=payload, request=httpx.Request("GET", url))
+        return httpx.Response(HTTPStatus.OK, json=payload, request=httpx.Request("GET", url))
 
     return _get
 
@@ -112,7 +113,7 @@ def test_sharing_reports_whether_the_hosted_agent_received_it() -> None:
     def _post(url: str, **kwargs: Any) -> httpx.Response:
         sent.update(url=url, body=kwargs["json"])
         payload = {"connected": True, "username": "octocat", "delivered_to_agent": False}
-        return httpx.Response(200, json=payload, request=httpx.Request("POST", url))
+        return httpx.Response(HTTPStatus.OK, json=payload, request=httpx.Request("POST", url))
 
     result = workspace_sync.share_github_with_workspace("gho_laptop", http_post=_post)
 
@@ -122,3 +123,31 @@ def test_sharing_reports_whether_the_hosted_agent_received_it() -> None:
     }
     assert result.ok is True
     assert result.delivered_to_agent is False
+
+
+def test_connected_answer_without_a_token_keeps_the_working_connection() -> None:
+    workspace_sync.sync_workspace_github(http_get=_webapp(_CONNECTED))
+
+    result = workspace_sync.sync_workspace_github(
+        http_get=_webapp({"connected": True, "credentials": {}})
+    )
+
+    assert result.status == "unavailable"
+    assert _local_instance()["credentials"]["auth_token"] == "gho_workspace"
+
+
+def test_choosing_the_workspace_keeps_manual_setup_when_the_fetch_fails() -> None:
+    upsert_integration("github", {"credentials": {"auth_token": "ghp_manual"}})
+
+    def _down(url: str, **_kwargs: Any) -> httpx.Response:
+        raise httpx.ConnectError("down", request=httpx.Request("GET", url))
+
+    failed = workspace_sync.sync_workspace_github(http_get=_down, replace_manual=True)
+    assert failed.status == "unavailable"
+    assert _local_instance()["credentials"]["auth_token"] == "ghp_manual"
+
+    replaced = workspace_sync.sync_workspace_github(
+        http_get=_webapp(_CONNECTED), replace_manual=True
+    )
+    assert replaced.status == "connected"
+    assert _local_instance()["credentials"]["auth_token"] == "gho_workspace"

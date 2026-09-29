@@ -13,17 +13,31 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_STOP_JOIN_SECONDS = 1.0
 
-def start_workspace_github_sync(session: Session) -> threading.Thread | None:
-    """Sync in the background so a slow webapp never delays the prompt.
 
-    A change lands in the store; the session re-resolves integrations so the
-    next turn sees GitHub connected (or gone) without a restart.
-    """
-    if is_test_run():
-        return None
+class WorkspaceGitHubSync:
+    """Handle for the startup sync; :meth:`stop` before the session closes."""
 
-    def _run() -> None:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+        self._stopped = threading.Event()
+        self._lock = threading.Lock()
+        self._thread = threading.Thread(
+            target=self._run, name="opensre-github-workspace-sync", daemon=True
+        )
+
+    def start(self) -> WorkspaceGitHubSync:
+        self._thread.start()
+        return self
+
+    def stop(self) -> None:
+        """Stop refreshing the session; a slow webapp call is left to finish on its own."""
+        with self._lock:
+            self._stopped.set()
+        self._thread.join(timeout=_STOP_JOIN_SECONDS)
+
+    def _run(self) -> None:
         from integrations.github import sync_workspace_github
 
         try:
@@ -31,12 +45,23 @@ def start_workspace_github_sync(session: Session) -> threading.Thread | None:
         except Exception:
             logger.debug("[github-sync] startup sync failed", exc_info=True)
             return
-        if result.changed:
-            session.refresh_integration_state()
+        if not result.changed:
+            return
+        # Held against stop() so a closed session is never refreshed.
+        with self._lock:
+            if not self._stopped.is_set():
+                self._session.refresh_integration_state()
 
-    thread = threading.Thread(target=_run, name="opensre-github-workspace-sync", daemon=True)
-    thread.start()
-    return thread
+
+def start_workspace_github_sync(session: Session) -> WorkspaceGitHubSync | None:
+    """Sync in the background so a slow webapp never delays the prompt.
+
+    A change lands in the store; the session re-resolves integrations so the
+    next turn sees GitHub connected (or gone) without a restart.
+    """
+    if is_test_run():
+        return None
+    return WorkspaceGitHubSync(session).start()
 
 
-__all__ = ["start_workspace_github_sync"]
+__all__ = ["WorkspaceGitHubSync", "start_workspace_github_sync"]

@@ -214,7 +214,6 @@ def _use_workspace_github(ui: TerminalSetupUI) -> str | None:
         fetch_workspace_github,
         sync_workspace_github,
     )
-    from integrations.store import remove_integration
 
     payload = fetch_workspace_github()
     if payload is None or payload.get("connected") is not True:
@@ -236,8 +235,7 @@ def _use_workspace_github(ui: TerminalSetupUI) -> str | None:
         sys.exit(1)
     if choice != "use":
         return None
-    remove_integration("github")
-    result = sync_workspace_github()
+    result = sync_workspace_github(replace_manual=True)
     ui.say(describe_github_sync(result))
     if result.status not in {"connected", "updated", "unchanged"}:
         return None

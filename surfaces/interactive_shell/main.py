@@ -81,13 +81,17 @@ async def run_repl_async(
     runtime_context = create_repl_runtime(session=_new_shell_session())
     session = runtime_context.session
     session.terminal.cli_command_group = cli_command_group
-    start_workspace_github_sync(session)
+    github_sync = start_workspace_github_sync(session)
 
     if initial_input:
         if after_banner is not None:
             after_banner()
         session.warm_resolved_integrations()
-        return run_initial_input(initial_input, session, out)
+        try:
+            return run_initial_input(initial_input, session, out)
+        finally:
+            if github_sync is not None:
+                github_sync.stop()
 
     # The sign-in gate runs once, in the synchronous ``run_repl`` entrypoint,
     # where it interleaves with the launch-banner paint. This coroutine is the
@@ -129,6 +133,8 @@ async def run_repl_async(
         ).start_interactive_shell()
         return 0
     finally:
+        if github_sync is not None:
+            github_sync.stop()
         # True end-of-run teardown: persist and release the session's resources.
         manager = SessionManager.for_session(session)
         with session_execution_lock(session.session_id):

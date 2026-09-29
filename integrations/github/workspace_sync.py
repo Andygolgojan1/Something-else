@@ -204,9 +204,16 @@ def share_github_with_workspace(
 
 
 def sync_workspace_github(
-    *, http_get: Callable[..., httpx.Response] = httpx.get
+    *,
+    http_get: Callable[..., httpx.Response] = httpx.get,
+    replace_manual: bool = False,
 ) -> GitHubWorkspaceSyncResult:
-    """Reconcile the local GitHub integration with the workspace connection."""
+    """Reconcile the local GitHub integration with the workspace connection.
+
+    ``replace_manual`` lets a user who chose the workspace connection in setup
+    swap out their manual one; it is replaced only once valid workspace
+    credentials are in hand, so a failed fetch never leaves them with nothing.
+    """
     if load_account_record() is None or not resolve_account_token():
         return GitHubWorkspaceSyncResult(status="signed_out")
     payload = fetch_workspace_github(http_get=http_get)
@@ -220,14 +227,18 @@ def sync_workspace_github(
     }
     local = get_integration("github")
     managed = is_account_managed(local)
-    credentials = _managed_credentials(payload) if payload.get("connected") is True else None
+    connected = payload.get("connected") is True
+    credentials = _managed_credentials(payload) if connected else None
+    if connected and credentials is None:
+        # Malformed "connected" answer: keep whatever works locally.
+        return GitHubWorkspaceSyncResult(status="unavailable", **links)
 
     if credentials is None:
         if managed:
             remove_integration("github")
             return GitHubWorkspaceSyncResult(status="removed", **links)
         return GitHubWorkspaceSyncResult(status="not_connected", **links)
-    if local is not None and not managed:
+    if local is not None and not managed and not replace_manual:
         return GitHubWorkspaceSyncResult(status="local_override", **links)
     tags = _managed_tags(links["permissions_url"])
     if (

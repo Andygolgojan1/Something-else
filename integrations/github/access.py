@@ -61,6 +61,10 @@ _PUSH_DENIED_RE = re.compile(
     r"permission to (?P<owner>[A-Za-z0-9._-]+)/(?P<repo>[A-Za-z0-9._-]+?)(?:\.git)? denied",
     re.IGNORECASE,
 )
+# MCP errors that give a status without the API URL, e.g. "403 Forbidden".
+_BARE_STATUS_RE = re.compile(
+    r"\b(?P<status>401|403|404)\b\s+(?:Unauthorized|Forbidden|Not Found)", re.IGNORECASE
+)
 _SSO_URL_RE = re.compile(r"url=(?P<url>https://github\.com/\S+)")
 
 
@@ -178,9 +182,15 @@ def classify_github_access_failure(
     lowered = text.lower()
     if status_code is None or not path:
         mcp_match = _MCP_HTTP_FAILURE_RE.search(text)
+        bare_match = _BARE_STATUS_RE.search(text)
         if mcp_match:
             path = path or mcp_match.group("path")
             status_code = status_code or int(mcp_match.group("status"))
+        elif bare_match:
+            status_code = status_code or int(bare_match.group("status"))
+        if not path:
+            repo_mention = _REPO_PATH_RE.search(text)
+            path = repo_mention.group(0) if repo_mention else ""
     owner, repo = _owner_repo(path)
     target = _target(owner, repo)
     grant_url = github_permissions_url(token)
