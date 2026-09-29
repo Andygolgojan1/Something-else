@@ -15,6 +15,7 @@ from core.agent_harness.tools.tool_provider import DefaultToolProvider
 from core.tool import AgentToolContext
 from infrastructure.scheduling.task_types import TaskKind
 from surfaces.interactive_shell.runtime.slash_adapter import headless_slash_ports
+from tools.interactive_shell.subprocess_presenter import headless_subprocess_presenter_factory
 
 
 def _run_control(session: SessionCore, name: str, **arguments: Any) -> dict[str, Any]:
@@ -22,6 +23,7 @@ def _run_control(session: SessionCore, name: str, **arguments: Any) -> dict[str,
         session,
         Console(file=io.StringIO(), force_terminal=False),
         slash_ports_factory=headless_slash_ports,
+        subprocess_presenter_factory=headless_subprocess_presenter_factory,
     )
     tools = provider.action_tools(confirm_fn=None, is_tty=False, resolved_integrations={})
     tool = next(tool for tool in tools if tool.name == name)
@@ -104,3 +106,19 @@ def test_hosted_loop_start_uses_the_existing_scheduler(
     assert enabled is not None and enabled.enabled
     assert not started
     assert consume_scheduler_reload_request()
+
+
+def test_headless_cli_returns_real_output_and_exit_status() -> None:
+    result = _run_control(SessionCore(), "cli_exec", payload="--version")
+
+    assert result["ok"] is True
+    assert result["exit_code"] == 0
+    assert "opensre" in result["stdout"].lower()
+
+
+def test_headless_cli_runs_default_background_commands_and_reports_failure() -> None:
+    result = _run_control(SessionCore(), "cli_exec", payload="missing-validation-command")
+
+    assert result["ok"] is False
+    assert result["exit_code"] == 2
+    assert "No such command" in result["stderr"]
