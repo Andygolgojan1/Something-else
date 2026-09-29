@@ -244,6 +244,48 @@ def _use_workspace_github(ui: TerminalSetupUI) -> str | None:
     return result.username or username
 
 
+def _offer_workspace_share(ui: TerminalSetupUI, auth_token: str) -> None:
+    """Offer to share a verified connection with the workspace's hosted agent.
+
+    Asked only when signed in and the workspace has no GitHub yet, so an
+    existing workspace connection is never replaced from a laptop.
+    """
+    from integrations.github.workspace_sync import (
+        fetch_workspace_github,
+        share_github_with_workspace,
+    )
+
+    if not auth_token:
+        return
+    payload = fetch_workspace_github()
+    if payload is None or payload.get("connected") is True:
+        return
+    choice = _select(
+        "Share this GitHub connection with your OpenSRE workspace? The hosted agent "
+        "(Slack, Telegram) and your teammates' CLIs will use it.",
+        choices=[
+            questionary.Choice("Yes, share it with the workspace", value="share"),
+            questionary.Choice("No, keep it on this machine only", value="local"),
+        ],
+        default="share",
+    )
+    if choice != "share":
+        return
+    result = share_github_with_workspace(auth_token)
+    if not result.ok:
+        ui.say(
+            "Could not share GitHub with the workspace. Connect it in the web app "
+            "under Settings → GitHub instead."
+        )
+    elif result.delivered_to_agent:
+        ui.say("Shared with your workspace. The hosted agent can use GitHub within a minute.")
+    else:
+        ui.say(
+            "Shared with your workspace. Your hosted agent is not set up yet; it gets "
+            "GitHub as soon as it is."
+        )
+
+
 def setup_github() -> str | None:
     """Configure + validate + save the GitHub MCP integration.
 
@@ -382,4 +424,5 @@ def setup_github() -> str | None:
         ui.say(
             "No repositories were returned. Check repository access or organization approval before requesting repository work."
         )
+    _offer_workspace_share(ui, values["auth_token"])
     return result.authenticated_user

@@ -104,3 +104,21 @@ def test_unreachable_webapp_changes_nothing() -> None:
 
     assert result.status == "unavailable"
     assert get_integration("github") is not None
+
+
+def test_sharing_reports_whether_the_hosted_agent_received_it() -> None:
+    sent: dict[str, Any] = {}
+
+    def _post(url: str, **kwargs: Any) -> httpx.Response:
+        sent.update(url=url, body=kwargs["json"])
+        payload = {"connected": True, "username": "octocat", "delivered_to_agent": False}
+        return httpx.Response(200, json=payload, request=httpx.Request("POST", url))
+
+    result = workspace_sync.share_github_with_workspace("gho_laptop", http_post=_post)
+
+    assert sent == {
+        "url": "https://app.example.com/api/auth/cli/integrations/github",
+        "body": {"auth_token": "gho_laptop"},
+    }
+    assert result.ok is True
+    assert result.delivered_to_agent is False

@@ -154,6 +154,55 @@ def fetch_workspace_github(
     return payload if isinstance(payload, Mapping) else None
 
 
+@dataclass(frozen=True)
+class GitHubWorkspaceShareResult:
+    """Whether the webapp stored the shared connection and the hosted agent received it."""
+
+    ok: bool
+    delivered_to_agent: bool = False
+    username: str = ""
+    settings_url: str = ""
+
+
+def share_github_with_workspace(
+    auth_token: str, *, http_post: Callable[..., httpx.Response] = httpx.post
+) -> GitHubWorkspaceShareResult:
+    """Make this GitHub connection the workspace's, so the hosted agent can use it.
+
+    The caller asks the user first: every workspace member's agent will act
+    with this token.
+    """
+    record = load_account_record()
+    token = resolve_account_token()
+    if record is None or not token or not auth_token.strip():
+        return GitHubWorkspaceShareResult(ok=False)
+    try:
+        response = http_post(
+            f"{record.app_url.rstrip('/')}{OPENSRE_ACCOUNT_GITHUB_PATH}",
+            json={"auth_token": auth_token.strip()},
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+            timeout=OPENSRE_ACCOUNT_HTTP_TIMEOUT_SECONDS,
+        )
+    except httpx.HTTPError:
+        logger.debug("[github-sync] share failed", exc_info=True)
+        return GitHubWorkspaceShareResult(ok=False)
+    if response.status_code != HTTPStatus.OK:
+        logger.debug("[github-sync] share returned HTTP %s", response.status_code)
+        return GitHubWorkspaceShareResult(ok=False)
+    try:
+        payload = response.json()
+    except ValueError:
+        return GitHubWorkspaceShareResult(ok=False)
+    if not isinstance(payload, Mapping):
+        return GitHubWorkspaceShareResult(ok=False)
+    return GitHubWorkspaceShareResult(
+        ok=payload.get("connected") is True,
+        delivered_to_agent=payload.get("delivered_to_agent") is True,
+        username=_text(payload, "username"),
+        settings_url=_text(payload, "settings_url"),
+    )
+
+
 def sync_workspace_github(
     *, http_get: Callable[..., httpx.Response] = httpx.get
 ) -> GitHubWorkspaceSyncResult:
@@ -204,9 +253,11 @@ def sync_workspace_github(
 
 
 __all__ = [
+    "GitHubWorkspaceShareResult",
     "GitHubWorkspaceSyncResult",
     "GitHubWorkspaceSyncStatus",
     "describe_github_sync",
     "fetch_workspace_github",
+    "share_github_with_workspace",
     "sync_workspace_github",
 ]
