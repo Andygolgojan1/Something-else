@@ -21,101 +21,97 @@ metadata:
 
 # Delegate a remote CI repair
 
-The shell owns gateway readiness, target selection, handoff, and reporting.
-The gateway owns repair execution through `operating-github-ci-repairs`.
-This demonstrates a bounded repair that continues without the shell; it does
-not establish continuous repository monitoring.
+This runs one bounded repair that finishes on the gateway without the shell. It does not set up continuous repository monitoring.
+
+## Roles
+**Orchestrator (local shell):**
+- Checks the gateway is ready, picks the target, delegates, verifies and reports.
+
+**Executor (gateway):**
+- Runs the repair with the skill `scheduling-github-ci-repairs` and reports back to the shell.
 
 ## Plan
+Use `update_plan` to create the live plan from the workflow headings below:
 
-Create the live plan with `update_plan`. Preserve completed steps across menu
-answers. Mark Step 4 `verifies: true` and Step 5 `deliverable: true` in every
-plan update. Pair bookkeeping with an action where possible; a menu must be
-the only tool call in its response.
-Include Step 2 only when target information is missing. When the request
-already selects a demo or PR, record that scope in the plan explanation and
-proceed from readiness to delegation. A reasoning-only selection cannot earn
-a separate completed plan step.
-Record work that cannot run as `blocked`, with its reason in `explanation`.
+**Inside the interactive shell:**
+- [ ] Prepare the hosted gateway with check_hosted_gateway.
+- [ ] Ask remote gateway agent to understand available GitHub account owner and if the required permissions are available 
 
-- [ ] Step 1. Prepare the hosted gateway with check_hosted_gateway.
-- [ ] Step 2. Ask for missing repair-target information with ask_user_choice.
-- [ ] Step 3. Delegate execution with ask_hosted_gateway and retain its prompt ID.
-- [ ] Step 4. Verify the remote repair outcome through ask_hosted_gateway.
-- [ ] Step 5. Show the remote outcome and evidence as Markdown.
-- [ ] Step 6. Offer the next step or blocker resolution with ask_user_choice.
+**Remote Gateway agent:**
+- [ ] Do a check to understand what GitHub integration credentials are configured 
+- [ ] Confirm permissions and wether there are permissions to create a seed repository
+
+**Inside the interactive shell:**
+- [ ] Based on information from Gateway agent ask user for permission to execute the plan based on the permissions and propose repository name and branch etc. 
+- [ ] Delegate execution with ask_hosted_gateway and retain its prompt ID.
+
+**Remote Gateway agent:**
+- [ ] Execute the skill `scheduling-github-ci-repairs` 
+
+**Inside the interactive shell:**
+- [ ] Verify the remote repair outcome through ask_hosted_gateway.
+- [ ] Show the remote outcome and evidence as Markdown.
+- [ ] Offer the next step or blocker resolution with ask_user_choice.
+
+## Success criteria
+
+The workflow succeeds only when:
+
+1. The hosted gateway is healthy with active GitHub permissions.
+2. A seed demo repository is configured with a failing PR 
+3. The CI failure is detected remotely.
+4. The remote repair loop fixes the failure without intervention from the local shell.
 
 ## Workflow
 
-### Step 1. Prepare the hosted gateway
+### Prepare the hosted gateway
+These steps are for the interactive shell only: 
+- Run `check_hosted_gateway()` and use`start_hosted_gateway()` as appropriate if none is running, then check readiness again. 
+- Ensure that the gateway can receive a simple prompt, are you running correctly? And that the response is recorded back inside the interactive shell. 
 
-Call `check_hosted_gateway()`. Follow its setup guidance if sign-in or provisioning
-is needed: use `/account login` in the shell and `start_hosted_gateway()` as
-appropriate, then check readiness again. Reuse a healthy running gateway.
+**Completed when:**
+- The gateway is ready. 
 
-Complete when the gateway is ready, or report the concrete setup blocker.
-The first repair request in Step 3 also verifies the prompt round-trip; a
-separate ping or inventory of historical loops is unnecessary.
+### Ask for missing repair-target information
+The goal for this step is to retrieve the necescarry information to execute a demo. 
 
-### Step 2. Ask for missing repair-target information
+Communicate with the remote Gateway to ask the following questions. 
 
-Use the user's existing PR selection or demo choice. Otherwise ask once with
-`ask_user_choice`, title `Remote Repair Target`, offering
-`Use a disposable demo repository` and `Use an existing pull request`, with
-custom answers enabled.
-For an existing target, obtain its PR URL or owner, repository, and PR number.
+- Use the user's existing PR selection or demo choice or ask once with
+`ask_user_choice`, title `Remote Repair Target`, offering:
+- `Use a disposable demo repository`
+- `Use an existing pull request`
+- with custom answers enabled.
+
+For an existing target:
+- obtain its PR URL
+- Owner
+- Repository name
+- PR number and link
+
 The bounded tool repairs a PR; a repository or branch alone is incomplete.
 
-Explain that demo mode uses a reusable private demo repository and retains the
-repository and evidence afterward. Carry the user's choice forward; the remote
-tool may separately request approval for its concrete invocation.
+**Complete when**
+- When the chosen scope is known. 
+- Keep asking until all required parameters are known. 
 
-Complete when the chosen scope is known. Keep local GitHub credentials out of
-the handoff: the gateway uses its organization's integration.
-
-### Step 3. Delegate execution
-
-Send one complete request with `ask_hosted_gateway(prompt=..., facts=...)`.
-Name `operating-github-ci-repairs` as the remote execution skill and include
-either `demo: "true"` or the selected PR details as string facts. For example:
-
-> Use operating-github-ci-repairs on this gateway to run the selected bounded
-> repair. The user selected the private demo. Return the repair task ID and
-> retained outcome with CI evidence. Relay any required tool approval. If the
-> named skill is unavailable, report the gateway version mismatch before
-> scheduling anything.
-
-Execute the shell's skill here; the remote request names the gateway's skill.
-Complete when the request is accepted and its `prompt_id` is recorded.
-
-### Step 4. Verify the remote outcome
-
-Continue according to the returned request state:
-
-- `needs_input`: the tool opens the gateway's question in the shell. Wait for
-  the user's answer, then call `ask_hosted_gateway(prompt_id=...)` with no new
-  prompt. Use the latest returned prompt ID for subsequent questions.
-- `queued` or `running`: retrieve that same prompt ID; keep the original work.
-- `done`: inspect the answer for the repair `task_id` and outcome. A completed
-  prompt can describe a repair that is still running. For that case, send a
-  narrow new request naming `operating-github-ci-repairs` and the existing
-  `task_id`, asking only to inspect and wait for that repair. A settled prompt
-  ID returns its old answer, not a fresh repair status.
-- `failed`: report the failure and any returned integration guidance. Recover
-  an already-known task by its ID before considering another execution request.
-
-Retain both IDs: `prompt_id` continues the gateway exchange; `task_id` identifies
-the repair. Continue observation within the repair's original deadline; never
-restart setup or create another repair to obtain status. For a GitHub connection
-blocker, direct the user to https://app.opensre.com/dashboard/github and follow
-the tool's continuation guidance after it is corrected.
+### Blockers 
+**GitHub connection blocker**
+- If missing credentials, direct the user to https://app.opensre.com/dashboard/github and follow the tool's continuation guidance after it is corrected.
 
 Complete when the remote task has a terminal outcome, or a concrete blocker
-prevents further verification. Claim a successful demo only with the failing
+prevents further verification. 
+
+Claim a successful demo only with the failing
 run, repair commit, and passing run from that task. An accepted request, token
 permission check, or successful scheduler delivery alone proves no repair.
 
-### Step 5. Show the outcome
+**Complete when**
+- The blockers are resolved or the user wants to write their own specific answer. 
+- For a pending task, offer to continue observing the same task ID or leave it running. 
+- Keep these recovery choices separate from the successful-demo options above.
+
+### Show the outcome
 
 Report the target PR, task ID, repair outcome, available CI evidence links, and
 retained resources. State pending, blocked, or failed outcomes plainly. The
@@ -125,7 +121,7 @@ disconnect only if the shell was actually disconnected during execution.
 Complete when the Markdown report has been shown. Keep the gateway running so
 an unfinished repair can continue.
 
-### Step 6. Offer the follow-up
+### Offer the follow-up
 
 After a successful repair report, use `ask_user_choice`:
 
@@ -133,11 +129,6 @@ After a successful repair report, use `ask_user_choice`:
 - Add more scheduled tasks
 - Exit to interactive shell
 
-For a blocked repair, offer a choice that would address the concrete blocker
-and one to leave the work blocked. For a pending task, offer to continue
-observing the same task ID or leave it running. Keep these recovery choices
-separate from the successful-demo options above.
-
-Complete when the appropriate menu is offered. Keep this step pending until
-the report has been shown; skipping it as already completed conflicts with
-the runtime's requirement to resolve blocked work with the user.
+**Complete when:**
+- The appropriate menu is offered. 
+- Keep this step pending until the report has been shown
