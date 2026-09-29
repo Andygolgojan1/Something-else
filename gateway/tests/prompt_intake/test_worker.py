@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from contextlib import nullcontext
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -11,6 +13,7 @@ from config.constants.gateway import PROMPT_SLOT_WAIT_SECONDS
 from core.agent_harness import SessionCore, SessionManager
 from core.agent_harness.session import InMemorySessionStore
 from core.agent_harness.session.pending_choice import PendingUserChoice
+from core.agent_harness.tools.tool_provider import DefaultToolProvider
 from gateway.core.prompt_intake import (
     ERROR_CREDITS_DENIED,
     ERROR_INVALID_ANSWER,
@@ -20,7 +23,11 @@ from gateway.core.prompt_intake import (
     PromptState,
     PromptWorker,
 )
-from infrastructure.turn_host.unattended_session import UnattendedSessions, restrict_to_unattended
+from infrastructure.turn_host.capability_policy import ensure_gateway_capability_policy
+from infrastructure.turn_host.unattended_session import (
+    UnattendedSessions,
+    prepare_unattended_session,
+)
 
 _LOGGER = logging.getLogger("test")
 
@@ -64,7 +71,7 @@ def _no_organization(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ORGANIZATION_ID", raising=False)
 
 
-def test_a_remote_turn_cannot_ask_or_switch_runtime_and_gets_the_context_as_facts() -> None:
+def test_a_remote_turn_defers_questions_and_gets_the_context_as_facts() -> None:
     # Arrange
     handler = _Handler(answer="3 scheduled tasks are running.")
     worker, queue = _worker(handler)
@@ -81,13 +88,61 @@ def test_a_remote_turn_cannot_ask_or_switch_runtime_and_gets_the_context_as_fact
     # Assert
     assert job.state is PromptState.DONE and job.answer == "3 scheduled tasks are running."
     assert handler.seen_capabilities["ask_user_choice"] == ("deferred",)
-    assert handler.seen_capabilities["slash_commands"] == ()
-    assert handler.seen_capabilities["llm_provider"] == ()
-    assert handler.seen_capabilities["cli_commands"] == ()
-    assert handler.seen_capabilities["hosted_gateway"] == ()
+    assert handler.seen_capabilities == {"ask_user_choice": ("deferred",)}
     assert handler.seen_text.endswith("Known context:\n- repository: Tracer-Cloud/opensre")
     # Accepted work waits for a turn slot instead of failing the moment a chat turn runs.
     assert handler.seen_kwargs == {"slot_wait_seconds": PROMPT_SLOT_WAIT_SECONDS}
+
+
+class _ToolCatalogHandler(_Handler):
+    """Resolve the real prompt and scheduled-tick tool catalogs on each turn."""
+
+    def __init__(self) -> None:
+        super().__init__(asks=PendingUserChoice(title="Which loop?", options=("demo",)))
+        self.prompt_tools: list[set[str]] = []
+        self.tick_tools: list[set[str]] = []
+
+    def run(self, text: str, session: SessionCore, output: Any, logger: Any, **kwargs: Any) -> Any:
+        ensure_gateway_capability_policy(session, hosts_scheduler=True)
+        for unattended, snapshots in ((False, self.prompt_tools), (True, self.tick_tools)):
+            provider = DefaultToolProvider(session, console=None, unattended=unattended)
+            tools = provider.action_tools(
+                confirm_fn=None,
+                is_tty=False,
+                resolved_integrations={"github": {"token": "test-token"}},
+            )
+            snapshots.append({tool.name for tool in tools})
+        return super().run(text, session, output, logger, **kwargs)
+
+
+def test_remote_prompt_tools_survive_resume_without_enabling_controls_on_scheduled_ticks() -> None:
+    handler = _ToolCatalogHandler()
+    worker, queue = _worker(handler)
+    job = queue.submit("enable a paused loop", context={}, actor="u")
+    assert job is not None
+
+    worker.run_one(job)
+    handler.asks = None
+    follow_up = queue.answer(job, "demo")
+    assert follow_up is not None
+    worker.run_one(follow_up)
+
+    assert follow_up.state is PromptState.DONE
+    assert len(handler.prompt_tools) == len(handler.tick_tools) == 2
+    for names in handler.prompt_tools:
+        assert {
+            "slash_invoke",
+            "schedule_ci_repair_loop",
+            "list_scheduled_loops",
+            "check_hosted_gateway",
+            "start_hosted_gateway",
+            "ask_hosted_gateway",
+            "cli_exec",
+            "llm_set_provider",
+            "task_cancel",
+        } <= names
+    for names in handler.tick_tools:
+        assert names.isdisjoint({"slash_invoke", "schedule_ci_repair_loop"})
 
 
 def test_a_question_ends_the_turn_as_needs_input_with_the_question_as_text() -> None:
@@ -140,13 +195,13 @@ def test_a_rejected_admission_and_a_failed_turn_become_stable_codes() -> None:
     assert ERROR_CREDITS_DENIED == "credits_denied"
 
 
-def test_restriction_leaves_other_capabilities_alone() -> None:
+def test_deferred_questions_leave_other_capabilities_alone() -> None:
     # Arrange
     session = SessionCore()
     session.available_capabilities["something_else"] = ("on",)
 
     # Act
-    restrict_to_unattended(session)
+    prepare_unattended_session(session)
 
     # Assert
     assert session.available_capabilities["something_else"] == ("on",)
@@ -560,3 +615,92 @@ def test_a_forgotten_original_request_still_leaves_the_parents_question_seeded()
     # Assert: the known part is seeded, starting at the parent's own question
     assert twice.state is PromptState.DONE
     assert handler.seen_history == [("assistant", once.question)]
+
+
+class _TranscriptHandler(_Handler):
+    def __init__(self) -> None:
+        super().__init__(answer="recorded")
+        self.transcripts: list[list[tuple[str, str]]] = []
+
+    def run(self, text: str, session: SessionCore, output: Any, logger: Any, **kwargs: Any) -> Any:
+        self.transcripts.append(list(session.cli_agent_messages))
+        session.record("chat", text)
+        session.cli_agent_messages.append(("user", text))
+        session.cli_agent_messages.append(("assistant", self.answer))
+        return super().run(text, session, output, logger, **kwargs)
+
+
+def test_hosted_conversation_survives_worker_restart_and_isolates_actors_and_organizations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("config.constants.paths.OPENSRE_HOME_DIR", tmp_path)
+    monkeypatch.delenv("OPENSRE_CONTEXT_ROOT", raising=False)
+    monkeypatch.setattr(
+        "gateway.core.prompt_intake.worker.bound_turn_metering", lambda **_kwargs: nullcontext()
+    )
+    handler = _TranscriptHandler()
+    session_ids = []
+    for org, actor, prompt in (
+        ("org-a", "alice", "first request"),
+        ("org-a", "bob", "another actor"),
+        ("org-b", "alice", "another organization"),
+        ("org-a", "alice", "continue original request"),
+    ):
+        monkeypatch.setenv("ORGANIZATION_ID", org)
+        # Recreate the worker and session manager, as a replacement container does.
+        queue = PromptQueue()
+        worker = PromptWorker(queue, handler, logger=_LOGGER)
+        job = queue.submit(prompt, context={}, actor=actor)
+        assert job is not None
+        worker.run_one(job)
+        assert job.state is PromptState.DONE
+        session_ids.append(job.session_id)
+
+    assert handler.transcripts[:3] == [[], [], []]
+    assert handler.transcripts[3] == [("user", "first request"), ("assistant", "recorded")]
+    assert session_ids[0] == session_ids[3]
+    assert len(set(session_ids)) == 3
+    assert not (tmp_path / "sessions").exists()
+
+
+class _PersistentApprovalHandler(_ApprovalHandler):
+    def run(self, text: str, session: SessionCore, output: Any, logger: Any, **kwargs: Any) -> Any:
+        session.record("chat", text)
+        session.cli_agent_messages.append(("user", text))
+        return super().run(text, session, output, logger, **kwargs)
+
+
+def test_new_hosted_requests_do_not_replace_an_awaiting_approval(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("config.constants.paths.OPENSRE_HOME_DIR", tmp_path)
+    monkeypatch.delenv("OPENSRE_CONTEXT_ROOT", raising=False)
+    monkeypatch.setenv("ORGANIZATION_ID", "org-a")
+    monkeypatch.setattr(
+        "gateway.core.prompt_intake.worker.bound_turn_metering", lambda **_kwargs: nullcontext()
+    )
+    handler = _PersistentApprovalHandler([7])
+    queue = PromptQueue()
+    worker = PromptWorker(queue, handler, logger=_LOGGER)
+    first = queue.submit("repair o/r#7", context={}, actor="alice")
+    second = queue.submit("repair o/r#8", context={}, actor="alice")
+    assert first is not None and second is not None
+    worker.run_one(first)
+    handler.pr_numbers = [8]
+    worker.run_one(second)
+
+    assert first.state is second.state is PromptState.NEEDS_INPUT
+    assert first.session_id != second.session_id
+    handler.pr_numbers = [7]
+    answer = queue.answer(first, "Approve")
+    assert answer is not None
+    worker.run_one(answer)
+    assert handler.verdicts[-1] is None
+    assert answer.state is PromptState.DONE
+
+    handler.pr_numbers = [8]
+    answer = queue.answer(second, "Approve")
+    assert answer is not None
+    worker.run_one(answer)
+    assert handler.verdicts[-1] is None
+    assert answer.state is PromptState.DONE

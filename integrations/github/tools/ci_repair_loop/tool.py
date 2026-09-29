@@ -1,4 +1,4 @@
-"""Schedule and inspect bounded, local GitHub repair loops."""
+"""Schedule and inspect bounded GitHub repair loops on the current host."""
 
 from __future__ import annotations
 
@@ -70,8 +70,9 @@ _REFUSED_ERROR = "Could not schedule CI repair: the pull request was refused."
     ],
     description=(
         "Schedule repair of one GitHub PR, or demo=true for a tiny CI repair demonstration "
-        "in a fixed reusable private repository. Starts and checks the local background "
-        "scheduler, uses a real 30-second trigger, stops after three failed attempts or "
+        "in a fixed reusable private repository. On a hosted gateway, registers with its "
+        "existing scheduler; on a laptop, starts and checks the local background scheduler. "
+        "Uses a real 30-second trigger, stops after three failed attempts or "
         "within ten minutes, and retains a linked outcome report. Reuses the active run "
         "without extending its deadline."
     ),

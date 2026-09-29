@@ -23,7 +23,7 @@ from integrations.hosted_gateway.client import (
 
 SOURCE = "opensre"
 
-#: Withheld where there is no signed-in account to act for: on the hosted gateway itself.
+#: Hosts may explicitly withhold the tools that use the signed-in account.
 HOSTED_GATEWAY_CAPABILITY = "hosted_gateway"
 
 

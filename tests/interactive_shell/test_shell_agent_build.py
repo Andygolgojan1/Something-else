@@ -1,4 +1,4 @@
-"""The shell builds via AgentBuildConfig without gateway-chat withholds."""
+"""Shell and gateway builds preserve their sessions' tool capabilities."""
 
 from __future__ import annotations
 
@@ -24,11 +24,11 @@ def test_shell_agent_build_omits_capability_policy() -> None:
     assert config.build_prompts is not None
 
 
-def test_gateway_policy_still_withholds_on_a_fresh_session() -> None:
+def test_gateway_policy_keeps_the_same_capabilities_as_the_shell() -> None:
     session = Session()
+    before = dict(session.available_capabilities)
     ensure_gateway_capability_policy(session)
-    assert session.available_capabilities["llm_provider"] == ()
-    assert session.available_capabilities["task_cancel"] == ()
+    assert session.available_capabilities == before
 
 
 def test_build_shell_agent_keeps_existing_capabilities() -> None:

@@ -344,7 +344,7 @@ def test_turn_runner_tolerates_sinks_without_tool_hooks(monkeypatch: Any) -> Non
     assert agent.bind_turn.call_args.args[0].tool_hooks is None
 
 
-def test_turn_runner_disables_unsupported_gateway_capabilities(monkeypatch: Any) -> None:
+def test_turn_runner_leaves_gateway_capabilities_available(monkeypatch: Any) -> None:
     _patch_headless_agent(monkeypatch, _empty_turn_result())
     session = SessionCore(store=InMemorySessionStore())
     handler = TurnRunner(console=Console(force_terminal=False))
@@ -356,8 +356,7 @@ def test_turn_runner_disables_unsupported_gateway_capabilities(monkeypatch: Any)
         logging.getLogger("test"),
     )
 
-    assert session.available_capabilities["llm_provider"] == ()
-    assert session.available_capabilities["task_cancel"] == ()
+    assert session.available_capabilities == {}
 
 
 def test_turn_runner_preserves_supported_capabilities(monkeypatch: Any) -> None:
@@ -380,14 +379,14 @@ def test_turn_runner_preserves_supported_capabilities(monkeypatch: Any) -> None:
         logging.getLogger("test.gateway.capabilities"),
     )
 
-    assert session.available_capabilities["llm_provider"] == ()
-    assert session.available_capabilities["task_cancel"] == ()
+    assert session.available_capabilities["llm_provider"] == ("existing-provider",)
+    assert session.available_capabilities["task_cancel"] == ("existing-cancel",)
 
     assert session.available_capabilities["shell_commands"] == ("shell",)
     assert session.available_capabilities["custom_gateway_capability"] == ("enabled",)
 
 
-def test_turn_runner_capability_gating_is_stable_across_turns(monkeypatch: Any) -> None:
+def test_turn_runner_keeps_capabilities_available_across_turns(monkeypatch: Any) -> None:
     _patch_headless_agent(monkeypatch, _empty_turn_result())
     session = SessionCore(store=InMemorySessionStore())
     session.available_capabilities["shell_commands"] = ("shell",)
@@ -398,9 +397,7 @@ def test_turn_runner_capability_gating_is_stable_across_turns(monkeypatch: Any) 
     handler("first turn", session, RecordingTurnOutput(), logger)
     handler("second turn", session, RecordingTurnOutput(), logger)
 
-    assert session.available_capabilities["llm_provider"] == ()
-    assert session.available_capabilities["task_cancel"] == ()
-    assert session.available_capabilities["shell_commands"] == ("shell",)
+    assert session.available_capabilities == {"shell_commands": ("shell",)}
 
 
 def test_turn_runner_emits_gateway_turn_analytics(monkeypatch: Any) -> None:

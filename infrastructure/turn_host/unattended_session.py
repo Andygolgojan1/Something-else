@@ -13,17 +13,7 @@ from typing import Any
 
 from core.agent_harness import SessionCore, SessionManager
 from core.agent_harness.spi.handoff import AskUserQuestion, format_ask_user_answers, question_key
-from core.agent_harness.spi.session_state import PendingUserChoice, withhold_capabilities
-
-#: Capabilities an unattended turn never has: nothing interactive, nothing that switches
-#: the runtime, and no CLI subprocess, whose output only a terminal could show.
-UNATTENDED_DISABLED_CAPABILITIES = (
-    "cli_commands",
-    "hosted_gateway",
-    "llm_provider",
-    "slash_commands",
-    "task_cancel",
-)
+from core.agent_harness.spi.session_state import PendingUserChoice
 
 APPROVE_OPTION = "Approve"
 DENY_OPTION = "Deny"
@@ -37,20 +27,33 @@ class AnswerRejected(ValueError):
 
 
 class UnattendedSessions:
-    """Opens one fresh session per unattended turn, or resumes one that stopped to ask."""
+    """Owns unattended sessions and actor-scoped hosted conversation continuity."""
 
     def __init__(self, manager: SessionManager | None = None) -> None:
         self._manager = manager or SessionManager()
 
     def open(self) -> SessionCore:
         session = self._manager.create(persistent_tasks=False, warm_integrations=False)
-        restrict_to_unattended(session)
+        prepare_unattended_session(session)
+        return session
+
+    def open_conversation(self) -> SessionCore:
+        """Open or resume the hosted conversation in the caller's bound actor scope."""
+        existing = _hosted_conversation_id()
+        if existing is not None and self._manager.has_session(existing):
+            session = self.resume(existing)
+            if session.pending_user_choice is None:
+                return session
+            # Only the original prompt's answer may resume its parked choice.
+            self.close(session)
+        session = self.open()
+        _remember_hosted_conversation(session.session_id)
         return session
 
     def resume(self, session_id: str) -> SessionCore:
-        """Reload a persisted session; capabilities are not stored, so restrict it again."""
+        """Reload a persisted session and restore deferred questions."""
         session = self._manager.resolve(session_id, warm_integrations=False, persistent_tasks=False)
-        restrict_to_unattended(session)
+        prepare_unattended_session(session)
         return session
 
     def flush(self, session: SessionCore) -> None:
@@ -61,9 +64,42 @@ class UnattendedSessions:
         self._manager.close(session, wait_for_memory_extraction=False)
 
 
-def restrict_to_unattended(session: SessionCore) -> None:
+def _hosted_conversation_id() -> str | None:
+    """Read the conversation binding from the caller's bound actor scope."""
+    from config.constants.paths import session_home
+
+    path = session_home() / "hosted-conversation"
+    try:
+        session_id = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return session_id or None
+
+
+def _remember_hosted_conversation(session_id: str) -> None:
+    """Record the actor's conversation id on the same volume as the transcript."""
+    import os
+    import tempfile
+
+    from config.constants.paths import session_home
+
+    path = session_home() / "hosted-conversation"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix=".hosted-conversation-")
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(session_id + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        from pathlib import Path
+
+        Path(temporary).unlink(missing_ok=True)
+
+
+def prepare_unattended_session(session: SessionCore) -> None:
     """A question ends the turn as a pending choice instead of waiting for an answer."""
-    withhold_capabilities(session, *UNATTENDED_DISABLED_CAPABILITIES)
     session.available_capabilities["ask_user_choice"] = ("deferred",)
 
 
@@ -221,7 +257,6 @@ def _match_option(question: AskUserQuestion, pick: str) -> str | None:
 __all__ = [
     "APPROVE_OPTION",
     "DENY_OPTION",
-    "UNATTENDED_DISABLED_CAPABILITIES",
     "AnswerRejected",
     "UnattendedSessions",
     "answer_pending_choice",
@@ -229,5 +264,5 @@ __all__ = [
     "approval_question",
     "choice_view",
     "invocation_key",
-    "restrict_to_unattended",
+    "prepare_unattended_session",
 ]

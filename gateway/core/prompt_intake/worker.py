@@ -140,6 +140,18 @@ class PromptWorker:
                 self._forget(session_id)
 
     def _run_job(self, job: PromptJob) -> None:
+        org = organization_id()
+        # Bind before the session file is created. Opening first writes the
+        # transcript under the host home, then the turn's scope looks elsewhere
+        # and flush deletes the empty file — the conversation never survives.
+        if not org:
+            self._run_bound_job(job, org)
+            return
+        scope = StorageScope(principal=Principal.org(org), actor=Actor(id=job.actor))
+        with bound_storage_scope(scope):
+            self._run_bound_job(job, org)
+
+    def _run_bound_job(self, job: PromptJob, org: str) -> None:
         if job.parent_id:
             session = self._sessions.resume(job.session_id)
             session.pending_user_choice = self._asked.pop(session.session_id, None)
@@ -149,7 +161,7 @@ class PromptWorker:
                 return
             self._seed_exchange(job, session)
         else:
-            session = self._sessions.open()
+            session = self._sessions.open_conversation() if org else self._sessions.open()
             job.session_id = session.session_id
             text = _render_prompt(job)
         output = CollectingTurnOutput(on_status=self._progress_writer(job))
@@ -160,7 +172,6 @@ class PromptWorker:
             after_tool_call=failures.after_tool_call,
         )
         denial = _Denial()
-        org = organization_id()
         try:
             with _turn_context(org, job, session, denial):
                 result = self._runner.run(

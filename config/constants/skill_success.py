@@ -15,7 +15,10 @@ SUCCESS_CRITERIA: dict[str, tuple[str, ...]] = {
         "Slack verify via `cli_exec` reports connected, or the reply quotes the verify failure.",
     ),
     "delegating-github-ci-repairs": (
-        "`ask_hosted_gateway` returns `done` or `failed`, and a `prompt_id` when the loop was accepted.",
+        "`ask_hosted_gateway.response_text` includes the repair `task_id` and outcome, "
+        "or a concrete blocker.",
+        "The reply claims `succeeded` only with the repair commit and passing CI evidence; "
+        "demo success also includes the failing run.",
     ),
     "delivering-morning-briefings": (
         "`slack_send_message` or `propose_scheduled_delivery` returns `response_text` with the briefing.",
@@ -34,6 +37,11 @@ SUCCESS_CRITERIA: dict[str, tuple[str, ...]] = {
     ),
     "operating-github-ci-fixer": (
         "`fix_github_pr_ci` returns `checks_state` `passed`, or `error_kind` after repairs stop.",
+    ),
+    "operating-github-ci-repairs": (
+        "`get_ci_repair_loop` returns the selected `task_id`, `status`, `terminal`, and retained "
+        "`response_text`, or the reply reports the tool's concrete blocker.",
+        "The reply distinguishes pending work from `terminal` failure and verified repair success.",
     ),
     "operating-github-cli": (
         "`github_cli` returns the pull request or issue data the user asked for.",
