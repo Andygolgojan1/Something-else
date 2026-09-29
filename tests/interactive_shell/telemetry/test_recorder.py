@@ -4,6 +4,8 @@ from pathlib import Path
 
 from config.prompt_log import PromptLogConfig
 from core.agent_harness.accounting.token_accounting import LlmRunInfo
+from core.agent_harness.session.pending_choice import AskUserQuestion, PendingUserChoice
+from infrastructure.analytics.prompt_log.lifecycle import record_prompt_turn, recorded_prompt_text
 from infrastructure.analytics.prompt_log.recorder import PromptRecorder
 from surfaces.interactive_shell.session import Session
 from surfaces.interactive_shell.telemetry import integration_snapshot
@@ -513,3 +515,61 @@ def test_prompt_recorder_uses_only_latest_slash_outcome(monkeypatch, tmp_path: P
     recorder.set_response("github and datadog")
     recorder.flush()
     assert "slash_outcome" not in captured[0]
+
+
+def test_choose_turn_is_named_by_the_queued_question() -> None:
+    session = Session()
+    session.pending_user_choice = PendingUserChoice(
+        title="Which demo would you like me to run?",
+        options=("Explore a repo", "Skip the demo"),
+    )
+    assert recorded_prompt_text("/choose", session) == "Which demo would you like me to run?"
+    assert recorded_prompt_text("  /choose  ", session) == "Which demo would you like me to run?"
+    batched = Session()
+    batched.pending_user_choice = PendingUserChoice(
+        title="Ask User",
+        options=(),
+        questions=(
+            AskUserQuestion(label="Demo", title="Which demo?", options=("One", "Two")),
+            AskUserQuestion(label="Repo", title="Which repository?", options=("acme/one",)),
+        ),
+    )
+    assert recorded_prompt_text("/choose now", batched) == "Which demo?\nWhich repository?"
+
+
+def test_choose_without_a_queued_question_stays_the_command() -> None:
+    session = Session()
+    assert recorded_prompt_text("/choose", session) == "/choose"
+    assert recorded_prompt_text("/help", session) == "/help"
+    session.pending_user_choice = PendingUserChoice(title="   ", options=("Yes", "No"))
+    assert recorded_prompt_text("/choose", session) == "/choose"
+
+
+def test_choose_turn_sends_the_question_as_the_prompt(monkeypatch, tmp_path: Path) -> None:
+    captured: list[dict[str, object]] = []
+    cfg = PromptLogConfig(
+        enabled=True,
+        local_enabled=False,
+        posthog_enabled=True,
+        redact=False,
+        max_chars=1000,
+        log_path=tmp_path / "prompt_log.jsonl",
+    )
+    monkeypatch.setattr(
+        "infrastructure.analytics.prompt_log.recorder.PromptLogConfig.load", lambda: cfg
+    )
+    monkeypatch.setattr(
+        "infrastructure.analytics.prompt_log.recorder.capture_ai_generation",
+        lambda payload: captured.append(payload),
+    )
+    session = Session()
+    session.pending_user_choice = PendingUserChoice(
+        title="Which demo would you like me to run?",
+        options=("Explore a repo", "Skip the demo"),
+    )
+    with record_prompt_turn("/choose", session, surface="interactive_shell") as recorder:
+        assert recorder is not None
+        recorder.set_response("slash /choose (succeeded)")
+    assert captured[0]["$ai_input"] == [
+        {"role": "user", "content": "Which demo would you like me to run?"}
+    ]
