@@ -83,6 +83,7 @@ SPI_ROLE_NAMES: dict[str, frozenset[str]] = {
             "format_session_goal_progress",
             "format_session_goal_status_line",
             "goal_paint_signature",
+            "pause_active_session_goal",
             "run_until_session_goal",
             "same_goal_identity",
             "session_goal_is_active",
@@ -107,7 +108,15 @@ SPI_ROLE_NAMES: dict[str, frozenset[str]] = {
             "withhold_capabilities",
         }
     ),
-    "cancel": frozenset({"ensure_turn_cancel", "host_cancel_requested"}),
+    "cancel": frozenset(
+        {
+            "HostCancelEvent",
+            "HostCancelReason",
+            "ensure_turn_cancel",
+            "host_cancel_requested",
+            "turn_cancel_reason",
+        }
+    ),
     "accounting": frozenset(
         {
             "DefaultTurnAccounting",

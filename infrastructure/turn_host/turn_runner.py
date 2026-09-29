@@ -31,7 +31,11 @@ from rich.console import Console
 from core.agent_harness import SessionCore, SessionManager, TurnResult
 from core.agent_harness.ports import ConfirmFn, SlashPortsFactory, TurnAccounting
 from core.agent_harness.runtime import AgentBuildConfig, TurnBinding
-from core.agent_harness.spi.cancel import ensure_turn_cancel, host_cancel_requested
+from core.agent_harness.spi.cancel import (
+    ensure_turn_cancel,
+    host_cancel_requested,
+    turn_cancel_reason,
+)
 from core.agent_harness.spi.session_goal import (
     SessionGoal,
     format_session_goal_progress,
@@ -248,6 +252,7 @@ class TurnRunner:
                     ),
                     accounting_factory=accounting_factory,
                     cancel_requested=_cancel_requested,
+                    cancel_reason=lambda: turn_cancel_reason(cancel),
                     on_progress=on_progress or _status_line_progress,
                 )
                 outbound_text = turn_result.primary_response_text
