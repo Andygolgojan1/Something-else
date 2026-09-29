@@ -203,16 +203,28 @@ def share_github_with_workspace(
     )
 
 
+def _may_write(still_wanted: Callable[[], bool] | None) -> bool:
+    if still_wanted is not None and not still_wanted():
+        return False
+    return load_account_record() is not None and bool(resolve_account_token())
+
+
 def sync_workspace_github(
     *,
     http_get: Callable[..., httpx.Response] = httpx.get,
     replace_manual: bool = False,
+    still_wanted: Callable[[], bool] | None = None,
 ) -> GitHubWorkspaceSyncResult:
     """Reconcile the local GitHub integration with the workspace connection.
 
     ``replace_manual`` lets a user who chose the workspace connection in setup
     swap out their manual one; it is replaced only once valid workspace
     credentials are in hand, so a failed fetch never leaves them with nothing.
+
+    The webapp call can be slow. Credentials are written only if the account is
+    still signed in and ``still_wanted`` (when given) still agrees at that
+    moment, so a sync that outlives a logout or shell exit cannot put a token
+    back.
     """
     if load_account_record() is None or not resolve_account_token():
         return GitHubWorkspaceSyncResult(status="signed_out")
@@ -248,6 +260,8 @@ def sync_workspace_github(
     ):
         return GitHubWorkspaceSyncResult(status="unchanged", **links)
 
+    if not _may_write(still_wanted):
+        return GitHubWorkspaceSyncResult(status="unavailable", **links)
     upsert_integration(
         "github",
         {

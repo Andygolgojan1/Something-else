@@ -32,7 +32,7 @@ class WorkspaceGitHubSync:
         return self
 
     def stop(self) -> None:
-        """Stop refreshing the session; a slow webapp call is left to finish on its own."""
+        """Stop the sync: it writes no credentials and refreshes no session after this."""
         with self._lock:
             self._stopped.set()
         self._thread.join(timeout=_STOP_JOIN_SECONDS)
@@ -41,7 +41,7 @@ class WorkspaceGitHubSync:
         from integrations.github import sync_workspace_github
 
         try:
-            result = sync_workspace_github()
+            result = sync_workspace_github(still_wanted=lambda: not self._stopped.is_set())
         except Exception:
             logger.debug("[github-sync] startup sync failed", exc_info=True)
             return

@@ -151,3 +151,19 @@ def test_choosing_the_workspace_keeps_manual_setup_when_the_fetch_fails() -> Non
     )
     assert replaced.status == "connected"
     assert _local_instance()["credentials"]["auth_token"] == "gho_workspace"
+
+
+def test_a_sync_that_outlives_logout_writes_no_credentials() -> None:
+    signed_in = {"value": True}
+
+    def _slow_webapp(url: str, **kwargs: Any) -> httpx.Response:
+        response: httpx.Response = _webapp(_CONNECTED)(url, **kwargs)
+        signed_in["value"] = False  # the user signs out while the request is in flight
+        return response
+
+    result = workspace_sync.sync_workspace_github(
+        http_get=_slow_webapp, still_wanted=lambda: signed_in["value"]
+    )
+
+    assert result.status == "unavailable"
+    assert get_integration("github") is None
