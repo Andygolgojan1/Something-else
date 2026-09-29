@@ -49,6 +49,8 @@ When the agent hits a repository or organization it cannot reach, it stops and t
 
 **Settings → GitHub → Update permissions** opens the same GitHub page at any time. Then ask the agent to retry.
 
+The hosted agent picks up a new or changed GitHub connection within a minute. If it still cannot reach GitHub, click **Sync to agent** in **Settings → GitHub**.
+
 ### Option 2: Interactive CLI (browser sign-in)
 
 ```bash
@@ -57,7 +59,7 @@ opensre integrations setup github
 
 In the interactive shell, use `/integrations setup github` or ask “Can you configure GitHub for me?”
 
-If your workspace already has GitHub connected in the web app, setup offers to use that connection instead of a separate sign-in.
+If your workspace already has GitHub connected in the web app, setup offers to use that connection instead of a separate sign-in. If it does not, setup offers to share your connection with the workspace so the hosted agent in Slack and Telegram can use GitHub too.
 
 1. Choose **Sign in with GitHub**. OpenSRE opens GitHub's device authorization page and prints a one-time code. Enter the code and approve OpenSRE; no personal access token is required.
 2. OpenSRE discovers your account and checks repository access. If GitHub or your organization has not granted access yet, approve it and retry the check without restarting setup.
