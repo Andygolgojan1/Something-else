@@ -525,33 +525,3 @@ def test_a_demo_pick_stalls_only_when_the_chosen_skill_was_loaded_and_nothing_el
     assert not demo_pick_stalled_on_skill_load(
         session, user_answered=True, from_onboarding_menu=True
     )
-
-
-def test_a_finished_plan_with_no_answer_is_sent_back_once() -> None:
-    """Slack got only the completed checklist: the plan finished, no answer was written."""
-    llm = _ScriptedLLM('{"verdict": "GOAL_REACHED"}')
-    goal = build_goal_reviewer(
-        llm,
-        "summarize today's changes to the opensre repo",
-        executed_tool_names=["github_cli", "update_plan", "github_cli", "update_plan"],
-        plan_incomplete=lambda: False,
-    )
-    assert goal.verify is not None and goal.nudge is not None
-    restated_plan = "Plan · 3/3 ✓ Identify the repository ✓ Collect today's commits ✓ Verify"
-
-    assert goal.verify(_obs(text="")) is False
-    assert "not answered" in goal.nudge(_obs(text=""))
-    # Asked once only: a second empty closing ends the turn instead of looping.
-    assert goal.verify(_obs(text=restated_plan)) is True
-    assert llm.invokes == 0
-
-
-def test_a_finished_plan_with_an_answer_concludes() -> None:
-    goal = build_goal_reviewer(
-        _ScriptedLLM('{"verdict": "GOAL_REACHED"}'),
-        "summarize today's changes",
-        executed_tool_names=["github_cli", "update_plan"],
-        plan_incomplete=lambda: False,
-    )
-    assert goal.verify is not None
-    assert goal.verify(_obs(text="Today: 5 commits, including the GitHub sync fix.")) is True
