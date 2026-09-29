@@ -45,6 +45,13 @@ RULES: tuple[PathRule, ...] = (
         ".github/scripts/sync-homebrew-tap-formula.sh",
         ("tests/cli/test_install_matrix.py",),
     ),
+    PathRule(
+        "Dockerfile",
+        (
+            "tests/cli/test_install_matrix.py",
+            "tests/infrastructure/deployment/container/test_entrypoint.py",
+        ),
+    ),
     # Shared core
     PathRule("core/domain/", ("tests/core/domain/",)),
     PathRule("core/agent_harness/session/", ("tests/core/agent_harness/session/",)),

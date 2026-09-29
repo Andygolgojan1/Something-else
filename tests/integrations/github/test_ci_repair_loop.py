@@ -1116,7 +1116,9 @@ def test_only_a_gateway_scheduled_loop_records_that_remote_monitoring_started(
     monkeypatch.setattr(schedule, "ensure_background_service", lambda **_kw: None)
 
     # Act: the second request reuses the active run, so monitoring did not start again
-    run, _, _ = schedule.schedule_repair(demo=True, owner="alice", store=store, scheduler_in_process=remote)
+    run, _, _ = schedule.schedule_repair(
+        demo=True, owner="alice", store=store, scheduler_in_process=remote
+    )
     schedule.schedule_repair(demo=True, owner="alice", store=store, scheduler_in_process=remote)
 
     # Assert

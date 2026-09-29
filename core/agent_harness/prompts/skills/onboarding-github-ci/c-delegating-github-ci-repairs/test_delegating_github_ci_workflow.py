@@ -148,7 +148,9 @@ def test_missing_gateway_skill_reports_blocker_before_recovery_menu(
 ) -> None:
     monkeypatch.setenv(OPENSRE_MEMORY_AUTOEXTRACT_DISABLED_ENV, "1")
     monkeypatch.setenv(OPENSRE_MEMORY_DIR_ENV, str(tmp_path / "memory"))
-    report = "Gateway version mismatch: scheduling-github-ci-repairs is unavailable; no task exists."
+    report = (
+        "Gateway version mismatch: scheduling-github-ci-repairs is unavailable; no task exists."
+    )
     blocked = _plan(1, 3, known_target=True)
     blocked["explanation"] = report
     blocked["plan"][1]["status"] = "blocked"
