@@ -56,6 +56,11 @@ _ORG_PATH_RE = re.compile(r"/orgs/(?P<owner>[A-Za-z0-9._-]+)")
 _MCP_HTTP_FAILURE_RE = re.compile(
     r"https://api\.github\.com(?P<path>/\S*?):?\s+(?P<status>[1-5]\d\d)\b"
 )
+# git push over HTTPS: "Permission to owner/repo.git denied to user."
+_PUSH_DENIED_RE = re.compile(
+    r"permission to (?P<owner>[A-Za-z0-9._-]+)/(?P<repo>[A-Za-z0-9._-]+?)(?:\.git)? denied",
+    re.IGNORECASE,
+)
 _SSO_URL_RE = re.compile(r"url=(?P<url>https://github\.com/\S+)")
 
 
@@ -222,6 +227,35 @@ def classify_github_access_failure(
                 f"Ask the user to open {oauth_url}, find {owner or 'the organization'} under "
                 "Organization access, and click Grant (or Request, if they are not an "
                 "organization owner), then retry."
+            ),
+            owner=owner,
+            repo=repo,
+        )
+
+    # git push: GitHub refuses workflow-file edits from a token without `workflow`.
+    if "without `workflow` scope" in lowered or "without 'workflow' scope" in lowered:
+        return GitHubAccessIssue(
+            kind="missing_scopes",
+            permissions_url=github_settings_url() or grant_url,
+            user_action=(
+                "GitHub refused the push because it changes a workflow file and OpenSRE's "
+                "GitHub connection is missing the workflow permission. Ask the user to "
+                f"reconnect GitHub and approve it. {_reconnect_hint()}, then retry."
+            ),
+            owner=owner,
+            repo=repo,
+        )
+
+    push_denied = _PUSH_DENIED_RE.search(text)
+    if push_denied:
+        owner, repo = push_denied.group("owner"), push_denied.group("repo")
+        return GitHubAccessIssue(
+            kind="repository_access",
+            permissions_url=grant_url,
+            user_action=(
+                f"GitHub refused the push to {owner}/{repo}: OpenSRE's GitHub access "
+                f"cannot write there. Ask the user to grant OpenSRE access to {owner} at "
+                f"{grant_url} (and confirm they can push to {owner}/{repo}), then retry."
             ),
             owner=owner,
             repo=repo,

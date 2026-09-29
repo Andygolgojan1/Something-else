@@ -175,3 +175,31 @@ def test_unrelated_failure_is_left_alone() -> None:
         )
         is None
     )
+
+
+def test_push_rejected_for_workflow_scope_asks_to_reconnect() -> None:
+    from integrations.github.tools.ci_fix.errors import GitHubCiFixError
+    from integrations.github.tools.ci_fix.runner import push_error_output
+
+    message = (
+        "git push failed: ! [remote rejected] fix -> fix (refusing to allow an OAuth App "
+        "to create or update workflow `.github/workflows/ci.yml` without `workflow` scope)"
+    )
+    payload = push_error_output({}, GitHubCiFixError("push_failed", message))
+
+    assert payload["action_required"] == GITHUB_PERMISSIONS_ACTION
+    assert payload["access_issue"] == "missing_scopes"
+    assert "workflow permission" in payload["response_text"]
+
+
+def test_push_denied_names_the_repository_to_grant() -> None:
+    issue = classify_github_access_failure(
+        status_code=None,
+        message="remote: Permission to acme/api.git denied to octocat.\nfatal: 403",
+        token="gho_abc",
+    )
+
+    assert issue is not None
+    assert issue.kind == "repository_access"
+    assert (issue.owner, issue.repo) == ("acme", "api")
+    assert issue.permissions_url == github_oauth_app_permissions_url()
