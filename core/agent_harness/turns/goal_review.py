@@ -35,6 +35,7 @@ from typing import Any
 from config.constants.llm import react_goal_llm_review_enabled
 from core.agent.goals import Goal, GoalObservation
 from core.agent_harness.closed_llm_verdict import invoke_closed_goal_verdict
+from core.agent_harness.turns.display_text import strip_plan_snapshots
 from core.agent_harness.turns.gather_discovery_budget import (
     bridge_tool_target,
     is_gather_discovery_call,
@@ -189,6 +190,13 @@ _FAILED_WORK_NUDGE = (
     "result is in a tool observation — or name the real blocker and ask "
     "the user."
 )
+# A finished plan is not an answer: on chat surfaces the checklist was the only
+# thing sent. Asked once; the second empty closing is accepted as is.
+_ANSWER_MISSING_NUDGE = (
+    "Your plan is complete, but you have not answered the user yet. Reply now "
+    "with the answer to their request, using the results you already gathered. "
+    "Do not call update_plan again and do not restate the plan."
+)
 # Prefix for the nudge when the deferred reply was painted for the user: the
 # model must not restate a report it can already see in its own transcript.
 _PLAN_DEFERRED_REPLY_SHOWN = (
@@ -235,6 +243,8 @@ class _LLMGoalReviewer:
     # Skill-load gate: an answer turn that only loaded a skill is rejected once.
     skill_load_only: Callable[[], bool] | None = None
     skill_load_rejections: int = 0
+    # Answer gate: a completed plan closed with no answer text is sent back once.
+    answer_missing_rejections: int = 0
     # Failed-work gate: a curl/shell that exited non-zero is not completion.
     executed_outcomes: list[ExecutedToolOutcome] = field(default_factory=list)
     reviews_remaining: int = field(default=_MAX_GOAL_REVIEWS)
@@ -272,6 +282,13 @@ class _LLMGoalReviewer:
             and self.blocked_needs_user()
         ):
             return self._decision(observation, False, "blocked_needs_user")
+        if (
+            plan_worked_this_turn(names)
+            and self.answer_missing_rejections == 0
+            and not strip_plan_snapshots(final_text)
+        ):
+            self.answer_missing_rejections += 1
+            return self._decision(observation, False, "answer_missing")
         if (
             self.skill_load_only is not None
             and self.skill_load_rejections == 0
@@ -396,6 +413,13 @@ def build_goal_reviewer(
     )
 
     def _nudge(observation: GoalObservation) -> str:
+        if (
+            reviewer.answer_missing_rejections == 1
+            and plan_worked_this_turn(executed_tool_names)
+            and not strip_plan_snapshots((observation.final_text or "").strip())
+            and not (plan_incomplete is not None and plan_incomplete())
+        ):
+            return _ANSWER_MISSING_NUDGE
         if skill_load_only is not None and skill_load_only():
             return _SKILL_LOAD_ONLY_NUDGE
         if last_work_tool_failed(outcomes) and not last_work_classified(outcomes):
