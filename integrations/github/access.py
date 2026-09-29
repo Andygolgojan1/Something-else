@@ -10,14 +10,12 @@ failure classifies as ``None`` and keeps its original message.
 
 from __future__ import annotations
 
-import os
 import re
 from dataclasses import dataclass
 from http import HTTPStatus
 from typing import Any, Literal, Protocol
 
 from config.constants.account import OPENSRE_GITHUB_SETTINGS_PATH
-from config.constants.billing import WEBAPP_URL_ENV
 from config.constants.github import GITHUB_INTEGRATION_SETUP_SLASH
 from integrations.github.mcp_oauth import resolve_github_oauth_client_id
 
@@ -95,14 +93,10 @@ class GitHubAccessIssue:
 
 def github_settings_url() -> str:
     """The webapp's GitHub settings page for this install, or "" when unknown."""
-    from config.account import load_account_record
+    from config.account import webapp_base_url
 
-    try:
-        record = load_account_record()
-    except Exception:
-        record = None
-    base = record.app_url if record is not None else os.getenv(WEBAPP_URL_ENV, "").strip()
-    return f"{base.rstrip('/')}{OPENSRE_GITHUB_SETTINGS_PATH}" if base else ""
+    base = webapp_base_url()
+    return f"{base}{OPENSRE_GITHUB_SETTINGS_PATH}" if base else ""
 
 
 def github_oauth_app_permissions_url() -> str:

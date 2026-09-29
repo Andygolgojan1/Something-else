@@ -285,15 +285,24 @@ def _run_integrations_setup(session: Session, console: Console, args: list[str])
         return True
 
     service = args[1]
-    cli_cmd = " ".join(["uv run opensre integrations setup", service, *args[2:]]).strip()
+    cli_cmd = " ".join(["opensre integrations setup", service, *args[2:]]).strip()
     if headless:
-        message = (
-            f"{escape(service)} setup needs interactive credentials (API keys, URLs, tokens) "
-            f"and cannot finish in Telegram.\n\n"
-            f"Run on the server:\n  {cli_cmd}\n\n"
-            "Then check status with `/integrations list` or "
-            f"`/integrations verify {escape(service)}`."
-        )
+        from integrations.setup import web_setup_url
+
+        link = web_setup_url(service)
+        if link:
+            # A hosted agent picks up a web app connection within a minute.
+            message = (
+                f"Connect {escape(service)} for this workspace in the OpenSRE web app:\n{link}\n\n"
+                "Once it is connected I can use it here within a minute, no restart needed."
+            )
+        else:
+            message = (
+                f"{escape(service)} setup needs credentials entered privately, so it cannot "
+                f"finish in chat.\n\nRun in a terminal:\n  {cli_cmd}\n\n"
+                "Then check status with `/integrations list` or "
+                f"`/integrations verify {escape(service)}`."
+            )
         repl_print(console, message)
         publish_headless_slash_response(session, message=message, ok=True)
         session.refresh_integration_state()
