@@ -12,9 +12,11 @@ from __future__ import annotations
 import http.client
 import logging
 import posixpath
+import re
 import secrets
 import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -30,6 +32,9 @@ _FORWARDED_REQUEST_HEADERS = ("content-type", "accept", "openai-beta")
 _FORWARDED_RESPONSE_HEADERS = ("content-type", "x-request-id")
 _MAX_BODY_BYTES = 16 * 1024 * 1024
 _UPSTREAM_TIMEOUT_SECONDS = 600.0
+# Path and query only. ``@``, ``\``, ``:``, and whitespace would let a request
+# path retarget the host when it is concatenated onto the upstream URL.
+_SAFE_FORWARDED_ROUTE = re.compile(r"/[A-Za-z0-9_~/-]+(?:\?[A-Za-z0-9._~%=&+-]*)?")
 
 
 class HostedRouteRelay:
@@ -77,7 +82,7 @@ class HostedRouteRelay:
                     self._reply_status(HTTPStatus.UNAUTHORIZED)
                     return
                 route_path = _route_path(self.path)
-                if route_path is None:
+                if route_path is None or _SAFE_FORWARDED_ROUTE.fullmatch(route_path) is None:
                     self._reply_status(HTTPStatus.NOT_FOUND)
                     return
                 length = _declared_body_length(self.headers.get("content-length"))
@@ -88,7 +93,10 @@ class HostedRouteRelay:
                     self._reply_status(HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
                     return
                 body = self.rfile.read(length) if length else None
-                target = upstream + route_path
+                target = _url_pinned_to_upstream(upstream, route_path)
+                if target is None:
+                    self._reply_status(HTTPStatus.NOT_FOUND)
+                    return
                 request = urllib.request.Request(target, data=body, method=self.command)
                 for name in _FORWARDED_REQUEST_HEADERS:
                     value = self.headers.get(name)
@@ -188,6 +196,29 @@ def _route_path(request_path: str) -> str | None:
         return None
     inside = normalized[len(_ROUTE_PREFIX) :]
     return f"{inside}?{query}" if query else inside
+
+
+def _url_pinned_to_upstream(upstream: str, route_path: str) -> str | None:
+    """Build the upstream URL with the configured scheme and host held fixed.
+
+    ``route_path`` may only contribute the path and query. A result whose host
+    or scheme differs from ``upstream`` is refused.
+    """
+    base = urllib.parse.urlsplit(upstream)
+    if base.scheme not in {"http", "https"} or not base.hostname:
+        return None
+    path, _, query = route_path.partition("?")
+    prefix = base.path.rstrip("/")
+    target = urllib.parse.urlunsplit((base.scheme, base.netloc, prefix + path, query, ""))
+    parsed = urllib.parse.urlsplit(target)
+    if (
+        parsed.scheme != base.scheme
+        or parsed.hostname != base.hostname
+        or parsed.port != base.port
+        or parsed.username is not None
+    ):
+        return None
+    return target
 
 
 def _bearer_matches(header: str | None, expected: str) -> bool:

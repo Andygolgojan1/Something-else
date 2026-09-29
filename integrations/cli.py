@@ -19,7 +19,6 @@ import questionary
 
 from infrastructure.terminal.theme import (
     ANSI_BOLD,
-    ANSI_DIM,
     ANSI_RESET,
     GLYPH_SUCCESS,
 )
@@ -57,7 +56,6 @@ from integrations.webapp_vault import delete_webapp_org_integration
 
 _B = ANSI_BOLD
 _R = ANSI_RESET
-_DIM = ANSI_DIM
 
 
 def _json_echo(data: Any) -> None:

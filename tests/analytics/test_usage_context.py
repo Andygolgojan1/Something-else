@@ -42,7 +42,7 @@ def _reset_analytics(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     provider.shutdown_analytics(flush=False)
     provider._instance = None
     usage_ctx._PROCESS_SESSION_ID = None
-    usage_ctx._CLAIMED_PROCESS_SESSION_ID = None
+    usage_ctx._ProcessSessionClaim.session_id = None
 
 
 def _stub_httpx_client(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, object]]:

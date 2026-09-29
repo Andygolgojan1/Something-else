@@ -154,6 +154,33 @@ def test_a_bad_content_length_is_refused_before_any_body_is_read(upstream: _Upst
     assert upstream.requests == []
 
 
+def test_a_path_that_could_retarget_the_host_is_refused(upstream: _Upstream) -> None:
+    """``@`` in the path must not leave the configured upstream host."""
+    # Arrange
+    relay = HostedRouteRelay(upstream.base_url, _ACCOUNT_TOKEN)
+
+    # Act
+    with relay:
+        smuggled, _ = _post(f"{relay.base_url}/foo@evil.example/responses", relay.run_token, {})
+
+    # Assert
+    assert smuggled == HTTPStatus.NOT_FOUND
+    assert upstream.requests == []
+
+
+def test_a_query_string_is_forwarded_on_the_same_host(upstream: _Upstream) -> None:
+    # Arrange
+    relay = HostedRouteRelay(upstream.base_url, _ACCOUNT_TOKEN)
+
+    # Act
+    with relay:
+        status, _ = _post(f"{relay.base_url}/responses?limit=1", relay.run_token, {})
+
+    # Assert
+    assert status == HTTPStatus.OK
+    assert upstream.requests[0]["path"] == "/api/llm/v1/responses?limit=1"
+
+
 def test_the_relay_is_gone_when_the_run_ends(upstream: _Upstream) -> None:
     # Arrange
     relay = HostedRouteRelay(upstream.base_url, _ACCOUNT_TOKEN)

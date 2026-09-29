@@ -14,16 +14,18 @@ from gateway.core.prompt_intake import (
 
 
 class _Clock:
+    """Manual clock. The queue calls ``read``."""
+
     def __init__(self) -> None:
         self.now = 1_000.0
 
-    def __call__(self) -> float:
+    def read(self) -> float:
         return self.now
 
 
 def test_a_full_queue_refuses_and_a_taken_job_is_running() -> None:
     # Arrange
-    queue = PromptQueue(max_queued=1, clock=_Clock())
+    queue = PromptQueue(max_queued=1, clock=_Clock().read)
 
     # Act
     first = queue.submit("first", context={}, actor="a")
@@ -40,7 +42,7 @@ def test_a_full_queue_refuses_and_a_taken_job_is_running() -> None:
 def test_a_settled_result_is_forgotten_after_the_retention_window() -> None:
     # Arrange
     clock = _Clock()
-    queue = PromptQueue(retention_seconds=60.0, clock=clock)
+    queue = PromptQueue(retention_seconds=60.0, clock=clock.read)
     job = queue.submit("what runs here?", context={"repository": "o/r"}, actor="a")
     assert job is not None
     queue.take(timeout_seconds=0.01)
@@ -64,7 +66,7 @@ def test_a_settled_result_is_forgotten_after_the_retention_window() -> None:
 
 def test_the_view_shows_only_the_field_for_its_state() -> None:
     # Arrange
-    queue = PromptQueue(clock=_Clock())
+    queue = PromptQueue(clock=_Clock().read)
     asked = queue.submit("a", context={}, actor="a")
     failed = queue.submit("b", context={}, actor="a")
     assert asked is not None and failed is not None
@@ -82,7 +84,7 @@ def test_the_view_shows_only_the_field_for_its_state() -> None:
 
 def test_an_answer_becomes_a_follow_up_on_the_parents_session_and_only_once() -> None:
     # Arrange: a prompt that stopped to ask
-    queue = PromptQueue(clock=_Clock())
+    queue = PromptQueue(clock=_Clock().read)
     parent = queue.submit("fix ci", context={}, actor="a")
     assert parent is not None
     queue.take(timeout_seconds=0.01)
@@ -113,7 +115,7 @@ def test_an_answer_becomes_a_follow_up_on_the_parents_session_and_only_once() ->
 
 def test_a_prompt_that_is_not_asking_refuses_an_answer_and_a_reopened_one_takes_another() -> None:
     # Arrange
-    queue = PromptQueue(clock=_Clock())
+    queue = PromptQueue(clock=_Clock().read)
     done = queue.submit("a", context={}, actor="a")
     asked = queue.submit("b", context={}, actor="a")
     assert done is not None and asked is not None
@@ -134,7 +136,7 @@ def test_a_prompt_that_is_not_asking_refuses_an_answer_and_a_reopened_one_takes_
 
 def test_progress_keeps_the_newest_lines_with_growing_indices() -> None:
     # Arrange
-    queue = PromptQueue(clock=_Clock())
+    queue = PromptQueue(clock=_Clock().read)
     job = queue.submit("fix ci", context={}, actor="a")
     assert job is not None
     job.progress = __import__("collections").deque(maxlen=2)

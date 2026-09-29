@@ -99,7 +99,7 @@ def analytics(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _Analytics:
     recorder = _Analytics()
     monkeypatch.setattr(provider, "_instance", recorder)
     monkeypatch.setattr(usage_context, "_PROCESS_SESSION_ID", None)
-    monkeypatch.setattr(usage_context, "_CLAIMED_PROCESS_SESSION_ID", None)
+    monkeypatch.setattr(usage_context._ProcessSessionClaim, "session_id", None)
     config = PromptLogConfig(log_path=tmp_path / "prompts.jsonl")
     monkeypatch.setattr(PromptLogConfig, "load", lambda: config)
     monkeypatch.setattr(action_driver, "_build_action_agent", _answering_plan)

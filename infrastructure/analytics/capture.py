@@ -529,7 +529,7 @@ def capture_agent_secret_detected(
     blocked: bool,
 ) -> None:
     _capture(
-        Event.AGENT_SECRET_DETECTED,
+        Event.AGENT_EXPOSURE_DETECTED,
         {"rule_names": ",".join(rule_names), "count": count, "blocked": blocked},
     )
 

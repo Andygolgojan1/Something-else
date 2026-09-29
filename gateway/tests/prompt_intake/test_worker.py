@@ -425,15 +425,16 @@ def test_a_resumed_turn_is_seeded_with_the_request_and_the_question() -> None:
 def test_a_session_is_retired_only_when_the_queue_holds_none_of_its_prompts() -> None:
     # Arrange: a parent that asked, then a follow-up that asks again on the same session
     class _Clock:
-        now = 1_000.0
+        def __init__(self) -> None:
+            self.now = 1_000.0
 
-        def __call__(self) -> float:
+        def read(self) -> float:
             return self.now
 
     clock = _Clock()
     branch = PendingUserChoice(title="Which branch?", options=("main", "release"))
     handler = _Handler(asks=branch)
-    queue = PromptQueue(retention_seconds=60.0, clock=clock)
+    queue = PromptQueue(retention_seconds=60.0, clock=clock.read)
     sessions = UnattendedSessions(SessionManager(store=InMemorySessionStore()))
     worker = PromptWorker(queue, handler, logger=_LOGGER, sessions=sessions)
     parent = queue.submit("fix ci", context={}, actor="u")

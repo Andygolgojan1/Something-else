@@ -50,9 +50,17 @@ _ORGANIZATION_ID: ContextVar[str | None] = ContextVar("analytics_organization_id
 # Process-scoped fallback for one-shot CLI workloads
 # that never enter a REPL session. Bound ContextVar / REPL session_id always win.
 _PROCESS_SESSION_ID: str | None = None
-# Compared by value, so resetting ``_PROCESS_SESSION_ID`` also releases the claim.
-_CLAIMED_PROCESS_SESSION_ID: str | None = None
 _PROCESS_SESSION_ID_LOCK = threading.Lock()
+
+
+class _ProcessSessionClaim:
+    """First claimant of the process session id.
+
+    Held on a class so the read is attribute access. A module global that is
+    only read inside a function declaring ``global`` is misreported as unused.
+    """
+
+    session_id: str | None = None
 
 
 def ensure_process_session_id() -> str:
@@ -72,12 +80,11 @@ def claim_process_session_id() -> str | None:
     first, so ``cli_invoked`` and that session's turns share one id. Gateway and
     unattended hosts bind their own id per turn and must never claim it.
     """
-    global _CLAIMED_PROCESS_SESSION_ID
     session_id = ensure_process_session_id()
     with _PROCESS_SESSION_ID_LOCK:
-        if session_id == _CLAIMED_PROCESS_SESSION_ID:
+        if session_id == _ProcessSessionClaim.session_id:
             return None
-        _CLAIMED_PROCESS_SESSION_ID = session_id
+        _ProcessSessionClaim.session_id = session_id
     return session_id
 
 
