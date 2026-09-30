@@ -28,7 +28,7 @@ From a clone of the OpenSRE repo:
 docker build -t opensre:latest .
 ```
 
-The image contains the runtime tools. It does not pin an OpenSRE build: on start it installs the current main-channel build. Inside a running container, `opensre update -y` installs a newer main build and restarts the process onto it. Rebuild the image when Git, the GitHub CLI, Node, or Codex should change, not for an application change.
+The image contains the runtime tools. It does not pin an OpenSRE build: on start it runs the install script and replaces any binary already on disk with the current main-channel build. Restart the container to pick up a newer build. Rebuild the image when Git, the GitHub CLI, Node, or Codex should change, not for an application change.
 
 The image can run in two modes via `MODE`:
 

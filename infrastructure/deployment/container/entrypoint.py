@@ -1,10 +1,12 @@
 """Install the current OpenSRE main build and run this container's MODE.
 
 The image ships the toolchain (git, the GitHub CLI, Node, Codex) and this
-supervisor. It does not contain an OpenSRE checkout. Each start installs the
-rolling main-channel binary when the one on disk is older. ``opensre update``
-in a process started here signals this supervisor, which starts that mode again
-on the new binary.
+supervisor. It does not contain an OpenSRE checkout. Each start runs the
+install script and replaces whatever binary is already on disk with the
+published main build. The binary on disk is not asked whether it is current:
+an older build's ``update --check`` can report itself up to date and leave
+the task on that build. ``opensre update`` in a process started here signals
+this supervisor, which installs again and starts that mode on the new binary.
 """
 
 from __future__ import annotations
@@ -45,6 +47,18 @@ def _executable(path: str) -> bool:
     return os.path.isfile(path) and os.access(path, os.X_OK)
 
 
+def _install_env() -> dict[str, str]:
+    """The install script's environment: the main channel, with no version pin.
+
+    ``OPENSRE_VERSION`` makes ``--main`` refuse to run. A task that still has
+    that variable would then keep the binary already on disk.
+    """
+    env = os.environ.copy()
+    env.pop("OPENSRE_VERSION", None)
+    env["OPENSRE_INSTALL_CHANNEL"] = "main"
+    return env
+
+
 def install_binary(*, install_dir: str) -> None:
     """Install the rolling main-channel binary into ``install_dir``."""
     print(f"installing OpenSRE main build into {install_dir}", flush=True)
@@ -58,25 +72,17 @@ def install_binary(*, install_dir: str) -> None:
             install_dir,
         ],
         check=True,
+        env=_install_env(),
     )
 
 
-def binary_is_current(binary: str) -> bool:
-    """Whether ``binary update --check`` reports this build is the main build."""
-    completed = subprocess.run([binary, "update", "--check"], check=False)
-    return completed.returncode == 0
-
-
 def refresh_binary(*, install_dir: str) -> None:
-    """Install the main build when it is missing or older than the published one.
+    """Replace the on-disk binary with the published main build.
 
     A refresh that fails after a binary is already installed starts that binary
     so a release-host outage does not take down a running gateway.
     """
     binary = binary_path(install_dir)
-    if _executable(binary) and binary_is_current(binary):
-        print("OpenSRE main build is current", flush=True)
-        return
     try:
         install_binary(install_dir=install_dir)
     except subprocess.CalledProcessError:

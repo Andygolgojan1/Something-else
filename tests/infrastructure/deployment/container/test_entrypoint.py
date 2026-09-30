@@ -16,7 +16,7 @@ from config.constants.environment import CONTAINER_SUPERVISOR_PID_ENV
 from config.constants.paths import REPO_ROOT
 from infrastructure.deployment.container.entrypoint import (
     _INSTALL_URL,
-    binary_is_current,
+    install_binary,
     mode_args,
     refresh_binary,
 )
@@ -85,12 +85,16 @@ def test_mode_args_match_the_container_modes() -> None:
         mode_args("worker")
 
 
-def test_refresh_keeps_a_current_binary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_refresh_replaces_a_binary_already_on_disk(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     binary = tmp_path / "opensre"
     _write_executable(binary, "#!/bin/sh\nexit 0\n")
     calls: list[list[str]] = []
 
-    def _run(args: list[str], check: bool = False) -> subprocess.CompletedProcess[bytes]:
+    def _run(
+        args: list[str], check: bool = False, **_kwargs: object
+    ) -> subprocess.CompletedProcess[bytes]:
         del check
         calls.append(list(args))
         return subprocess.CompletedProcess(args, 0)
@@ -102,7 +106,9 @@ def test_refresh_keeps_a_current_binary(tmp_path: Path, monkeypatch: pytest.Monk
 
     refresh_binary(install_dir=str(tmp_path))
 
-    assert calls == [[str(binary), "update", "--check"]]
+    assert calls[0][0] == "bash"
+    assert "--main" in calls[0][2]
+    assert [str(binary), "update", "--check"] not in calls
 
 
 def test_refresh_installs_when_the_binary_is_missing(
@@ -110,7 +116,9 @@ def test_refresh_installs_when_the_binary_is_missing(
 ) -> None:
     calls: list[list[str]] = []
 
-    def _run(args: list[str], check: bool = False) -> subprocess.CompletedProcess[bytes]:
+    def _run(
+        args: list[str], check: bool = False, **_kwargs: object
+    ) -> subprocess.CompletedProcess[bytes]:
         del check
         calls.append(list(args))
         return subprocess.CompletedProcess(args, 0)
@@ -163,7 +171,7 @@ def test_supervisor_restarts_the_mode_when_update_signals(
         assert any("--main" in line for line in _lines(install_log))
         proc.send_signal(signal.SIGHUP)
         _wait_until(lambda: sum(line.startswith("gateway ") for line in _lines(argv_log)) >= 2)
-        assert len(_lines(install_log)) == 1
+        assert len(_lines(install_log)) == 2
         proc.send_signal(signal.SIGTERM)
         assert proc.wait(timeout=10) == 0
     finally:
@@ -192,19 +200,48 @@ def test_failed_install_with_no_binary_exits(tmp_path: Path) -> None:
     assert completed.returncode != 0
 
 
-def test_binary_is_current_follows_the_check_status(
+def test_install_script_ignores_a_pinned_task_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: dict[str, str] = {}
+
+    def _run(
+        args: list[str], check: bool = False, env: dict[str, str] | None = None
+    ) -> subprocess.CompletedProcess[bytes]:
+        del args, check
+        assert env is not None
+        seen.update(env)
+        return subprocess.CompletedProcess([], 0)
+
+    monkeypatch.setenv("OPENSRE_VERSION", "0.1.2026.9.14")
+    monkeypatch.setenv("OPENSRE_INSTALL_CHANNEL", "release")
+    monkeypatch.setattr(
+        "infrastructure.deployment.container.entrypoint.subprocess.run",
+        _run,
+    )
+
+    install_binary(install_dir=str(tmp_path))
+
+    assert "OPENSRE_VERSION" not in seen
+    assert seen["OPENSRE_INSTALL_CHANNEL"] == "main"
+
+
+def test_failed_refresh_starts_the_binary_already_on_disk(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     binary = tmp_path / "opensre"
     _write_executable(binary, "#!/bin/sh\nexit 0\n")
 
-    def _run(args: list[str], check: bool = False) -> subprocess.CompletedProcess[bytes]:
-        del args, check
-        return subprocess.CompletedProcess([], 7)
+    def _run(
+        args: list[str], check: bool = False, **_kwargs: object
+    ) -> subprocess.CompletedProcess[bytes]:
+        if check:
+            raise subprocess.CalledProcessError(1, args)
+        return subprocess.CompletedProcess(args, 1)
 
     monkeypatch.setattr(
         "infrastructure.deployment.container.entrypoint.subprocess.run",
         _run,
     )
 
-    assert binary_is_current(str(binary)) is False
+    refresh_binary(install_dir=str(tmp_path))

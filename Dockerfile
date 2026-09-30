@@ -1,8 +1,9 @@
 # Unified Dockerfile for OpenSRE.
 # The image is the toolchain (git, GitHub CLI, Node, Codex) plus a supervisor.
-# It does not bake an OpenSRE checkout. On start the supervisor installs the
-# current main-channel binary. ``opensre update`` in that container restarts
-# the process onto a newer build. Rebuild the image when the toolchain changes.
+# It does not bake an OpenSRE checkout. On start the supervisor runs the install
+# script and replaces any binary already on disk with the current main-channel
+# build. `opensre update` in that container restarts the process onto a newer
+# build. Rebuild the image when the toolchain changes.
 #
 # Supports three runtime modes via MODE environment variable:
 #   MODE=web        - FastAPI web API (health, alerts, async investigations)
