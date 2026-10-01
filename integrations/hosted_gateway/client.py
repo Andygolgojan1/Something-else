@@ -32,6 +32,8 @@ from infrastructure.analytics.capture import capture_hosted_gateway_task_submitt
 ERR_NOT_SIGNED_IN = "not_signed_in"
 ERR_INSECURE_APP_URL = "insecure_app_url"
 ERR_UNREACHABLE = "unreachable"
+# The app answered, but the gateway behind it did not: starting, restarting, or down.
+ERR_GATEWAY_UNAVAILABLE = "gateway_unavailable"
 ERR_UNAUTHORIZED = "unauthorized"
 ERR_INVALID_RESPONSE = "invalid_response"
 # The app is older than this CLI and has no hosted-gateway routes yet.
@@ -52,6 +54,14 @@ _PROMPT_ID = re.compile(r"^p_[0-9a-f]{32}$")
 
 #: Failures before a connection existed, so no byte of the request reached the app.
 _CONNECT_FAILURES = (httpx.ConnectError, httpx.ConnectTimeout)
+
+#: The app's answer when it, or the control plane behind it, could not reach the gateway.
+_UNAVAILABLE_STATUSES = frozenset(
+    {HTTPStatus.BAD_GATEWAY, HTTPStatus.SERVICE_UNAVAILABLE, HTTPStatus.GATEWAY_TIMEOUT}
+)
+
+#: Failures that pass on their own: nobody answered, and a later request may succeed.
+TRANSIENT_ERRORS = frozenset({ERR_UNREACHABLE, ERR_GATEWAY_UNAVAILABLE})
 
 #: Failures of the account or its setup, not of the service: nothing to report as an incident.
 EXPECTED_ERRORS = frozenset(
@@ -259,6 +269,8 @@ class HostedGatewayClient:
         if refusal is not None:
             code = _refusal_code(response, refusal, body_codes)
             raise HostedGatewayError(code, response.status_code)
+        if response.status_code in _UNAVAILABLE_STATUSES:
+            raise HostedGatewayError(ERR_GATEWAY_UNAVAILABLE, response.status_code)
         if not response.is_success:
             raise HostedGatewayError(f"http_{response.status_code}", response.status_code)
         try:
@@ -419,6 +431,7 @@ def _text(value: object) -> str:
 
 
 __all__ = [
+    "ERR_GATEWAY_UNAVAILABLE",
     "ERR_INSECURE_APP_URL",
     "ERR_INVALID_RESPONSE",
     "ERR_NOT_PROVISIONED",
@@ -434,4 +447,5 @@ __all__ = [
     "HostedGatewayClient",
     "HostedGatewayError",
     "PromptRecord",
+    "TRANSIENT_ERRORS",
 ]

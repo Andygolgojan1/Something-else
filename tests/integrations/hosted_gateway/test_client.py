@@ -8,6 +8,7 @@ import httpx
 import pytest
 
 from integrations.hosted_gateway import (
+    ERR_GATEWAY_UNAVAILABLE,
     ERR_INSECURE_APP_URL,
     ERR_INVALID_RESPONSE,
     ERR_NOT_SIGNED_IN,
@@ -103,7 +104,11 @@ def test_plain_http_is_allowed_only_to_this_machine(app_url: str) -> None:
     [
         (httpx.Response(401, json={"error": "unauthorized"}), ERR_UNAUTHORIZED),
         (httpx.Response(404, text="<html>no such route</html>"), ERR_NOT_SUPPORTED),
-        (httpx.Response(502, json={"error": "gateway_lookup_failed"}), "http_502"),
+        # The app answered for a gateway that did not: retryable, not an unknown failure.
+        (
+            httpx.Response(HTTPStatus.BAD_GATEWAY, json={"error": "gateway_lookup_failed"}),
+            ERR_GATEWAY_UNAVAILABLE,
+        ),
         # Health has no provisioning refusal: these are unexpected, reportable failures.
         (httpx.Response(403, text="<html>blocked</html>"), "http_403"),
         (httpx.Response(409, json={"error": "conflict"}), "http_409"),

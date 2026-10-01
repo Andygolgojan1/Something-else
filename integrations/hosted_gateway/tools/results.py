@@ -8,6 +8,7 @@ from config.constants.capabilities import HOSTED_GATEWAY_CAPABILITY
 from core.agent_harness.tools import capability_available_from_sources
 from core.tool import report_run_error
 from integrations.hosted_gateway.client import (
+    ERR_GATEWAY_UNAVAILABLE,
     ERR_INSECURE_APP_URL,
     ERR_NOT_PROVISIONED,
     ERR_NOT_RUNNING,
@@ -18,6 +19,7 @@ from integrations.hosted_gateway.client import (
     ERR_UNKNOWN_PROMPT,
     ERR_UNREACHABLE,
     EXPECTED_ERRORS,
+    TRANSIENT_ERRORS,
     GatewayHealth,
     HostedGatewayError,
 )
@@ -41,6 +43,11 @@ _FAILURE_TEXT = {
     ERR_UNREACHABLE: (
         "The OpenSRE app did not answer (the connection failed or timed out). Check this "
         "machine's network connection."
+    ),
+    ERR_GATEWAY_UNAVAILABLE: (
+        "Your organization's hosted gateway is not answering right now; it may still be "
+        "starting after a restart. Try again in a minute. A restart drops the prompts the "
+        "gateway held, so a prompt sent before one has to be sent again."
     ),
     ERR_INSECURE_APP_URL: (
         "The OpenSRE app URL of this sign-in is not https, so the account token was not "
@@ -79,8 +86,20 @@ def state_output(health: GatewayHealth, response_text: str) -> dict[str, Any]:
 
 
 def failure_output(exc: HostedGatewayError, *, tool_name: str, component: str) -> dict[str, Any]:
-    """The tool result for a refused or failed call; only real failures are reported."""
-    if exc.code not in EXPECTED_ERRORS:
+    """The tool result for a refused or failed call; only real failures are reported.
+
+    A transient failure is reported as a warning without a stack: the code says it all.
+    """
+    if exc.code in TRANSIENT_ERRORS:
+        report_run_error(
+            exc,
+            tool_name=tool_name,
+            source=SOURCE,
+            component=component,
+            severity="warning",
+            include_traceback=False,
+        )
+    elif exc.code not in EXPECTED_ERRORS:
         report_run_error(exc, tool_name=tool_name, source=SOURCE, component=component)
     text = _FAILURE_TEXT.get(exc.code, f"The OpenSRE app could not do that ({exc.code}).")
     return {

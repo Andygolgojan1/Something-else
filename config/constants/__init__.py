@@ -622,6 +622,9 @@ if TYPE_CHECKING:
     from config.constants.hosted_gateway import (
         HOSTED_GATEWAY_STOP_PATH as HOSTED_GATEWAY_STOP_PATH,
     )
+    from config.constants.hosted_gateway import (
+        HOSTED_GATEWAY_UNANSWERED_GRACE_SECONDS as HOSTED_GATEWAY_UNANSWERED_GRACE_SECONDS,
+    )
     from config.constants.http import (
         MAX_REQUEST_BODY_BYTES as MAX_REQUEST_BODY_BYTES,
     )
