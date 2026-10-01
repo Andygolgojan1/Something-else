@@ -131,6 +131,7 @@ def _write_curl_shim(bin_dir: Path, assets_dir: Path, release_json_by_url: dict[
             set -euo pipefail
             out=""
             url=""
+            github_auth_seen=0
             args=("$@")
             i=0
             while [ "$i" -lt "${{#args[@]}}" ]; do
@@ -140,7 +141,13 @@ def _write_curl_shim(bin_dir: Path, assets_dir: Path, release_json_by_url: dict[
                   i=$((i + 1))
                   out="${{args[$i]}}"
                   ;;
-                -H|--header|--retry|--retry-delay) i=$((i + 1)) ;;
+                -H|--header)
+                  i=$((i + 1))
+                  if [ "${{args[$i]}}" = "Authorization: Bearer ${{OPENSRE_TEST_EXPECT_GITHUB_TOKEN:-}}" ]; then
+                    github_auth_seen=1
+                  fi
+                  ;;
+                --retry|--retry-delay) i=$((i + 1)) ;;
                 --fail|--silent|--show-error|--location) ;;
                 http://*|https://*) url="$arg" ;;
               esac
@@ -150,6 +157,10 @@ def _write_curl_shim(bin_dir: Path, assets_dir: Path, release_json_by_url: dict[
             map={json.dumps(str(mapping_path))}
             assets={json.dumps(str(assets_dir))}
             if printf '%s' "$url" | grep -q 'api.github.com'; then
+              if [ -n "${{OPENSRE_TEST_EXPECT_GITHUB_TOKEN:-}}" ] && [ "$github_auth_seen" -ne 1 ]; then
+                echo "curl-shim: missing GitHub authorization header" >&2
+                exit 1
+              fi
               body="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$map" "$url")"
               if [ -n "$out" ]; then printf '%s' "$body" >"$out"; else printf '%s' "$body"; fi
               exit 0
@@ -226,6 +237,7 @@ def _run_install_sh(
     _write_curl_shim(shim_bin, assets, url_map)
 
     env = os.environ.copy()
+    env.pop("GITHUB_TOKEN", None)
     env.pop("OPENSRE_HOME", None)
     env.pop("OPENSRE_WIZARD_STORE_PATH", None)
     env.pop("OPENSRE_INSTALL_MARKER_STATE", None)
@@ -547,6 +559,20 @@ def test_install_sh_release_latest_end_to_end(tmp_path: Path) -> None:
         check=False,
     )
     assert "2026.4.29" in version.stdout
+
+
+def test_install_sh_uses_github_token_for_release_metadata(tmp_path: Path) -> None:
+    """A caller-supplied Actions token authenticates only GitHub API lookups."""
+    token = "canary-token"
+    result = _run_install_sh(
+        tmp_path,
+        "--release",
+        env_extra={
+            "GITHUB_TOKEN": token,
+            "OPENSRE_TEST_EXPECT_GITHUB_TOKEN": token,
+        },
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_install_sh_rejects_version_with_main(tmp_path: Path) -> None:
