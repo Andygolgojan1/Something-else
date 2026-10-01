@@ -98,8 +98,10 @@ def _cli_command_succeeded(exit_code: int | None) -> bool:
 def shutdown_kept_cli_commands() -> None:
     """Wait until background CLI children have exited and their pipes are drained.
 
-    The children are not killed. A scheduled tick holds its claim until it
-    finishes, and stopping it is what blocked the task's later ticks.
+    Not used on session teardown: the gateway closes the session before it
+    publishes the prompt result, and a stuck tick must not block that. The
+    reaper is non-daemon, so interpreter shutdown waits for it instead.
+    Children are not killed; stopping one is what blocked the task's later ticks.
     """
     with _KEPT_CLI_LOCK:
         threads = tuple(_KEPT_CLI_COMMANDS)

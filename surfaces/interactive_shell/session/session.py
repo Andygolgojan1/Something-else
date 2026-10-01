@@ -67,15 +67,8 @@ class Session(SessionCore):
         """Cancel background work and drop loop-owned UI references for teardown.
 
         Extends :meth:`SessionCore.release_resources` (which cancels the
-        integration-warm task) with the shell facet's own teardown. A
-        background ``/cron run`` is waited for here and is not killed: its
-        claim stays held until the tick finishes.
+        integration-warm task) with the shell facet's own teardown.
         """
-        from surfaces.interactive_shell.command_registry.cli_parity import (
-            shutdown_kept_cli_commands,
-        )
-
-        shutdown_kept_cli_commands()
         super().release_resources()
         self.terminal.prompt_refresh_fn = None
         self.terminal.fleet_sampler_starter = None
