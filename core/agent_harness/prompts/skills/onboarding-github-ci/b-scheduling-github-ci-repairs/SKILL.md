@@ -9,7 +9,7 @@ demo_order: 2
 metadata:
   owner: Vincent
   last_changed_by: Jan
-  last_changed_at: 2026-09-29
+  last_changed_at: 2026-10-01
   usecases:
     - For configuring ongoing repair of failing pull requests in one repository.
     - For demonstrating a scheduled repair in a disposable private repository.
@@ -57,12 +57,12 @@ Use `update_plan` to create the live plan from the workflow headings below:
 
 Two calls, one per response:
 
-**confirm authentication and print token**
+**confirm authentication and print token:**
 
 - `github_cli` `["api", "user", "--include"]` — confirms authentication and
   prints the token's `X-Oauth-Scopes` header.
 
-**check scheduler health**
+**check scheduler health:**
 
 - `slash_invoke` `{"command": "/cron", "args": ["list"]}` — confirms the
   scheduler answers.
@@ -76,12 +76,12 @@ Two calls, one per response:
 Use the repository already named by the user and skip the rest of this step.
 Otherwise, two calls, one per response:
 
-**find what is red right now**
+**find what is red right now:**
 
 - `scan_github_ci_health()` — every repository of the user's account and
   organizations, default branch and open PRs only. Read `failing_prs`;
 
-**ask once**
+**ask once:**
 
 - `ask_user_choice` titled "CI Repair Target": "Private disposable demo
   repository" first (recommended), then one option per repository that
@@ -99,7 +99,7 @@ Choosing the demo authorizes creating a private repository, its branch, PR, and 
 
 ### Step 3. Select the failure scenario
 
-**Existing repository**
+**Existing repository:**
 
 - `summarize_github_pr_status(owner, repo, state="open", include_checks=true)`
 - pick the user's PR, or the first PR with a failing check
@@ -119,12 +119,14 @@ The scope was authorized in Step 1; nothing to fetch.
 Build a small repository whose CI fails for one obvious reason, and open a PR for it. Choose the calls yourself with `github_cli`; it carries the GitHub credentials, and plain `git` on the gateway does not.
 
 The fixture:
+
 - `main` passes: `calculator.py` where `add` returns `left + right`, `test_calculator.py` asserting `add(2, 3) == 5`, and `.github/workflows/test.yml` named `Demo calculator CI` running `python -m unittest -v` on push and pull_request.
 - `demo/failing-ci` is one commit ahead and changes only `calculator.py`, so `add` subtracts.
 
 Create the repository first (private, under the approved owner), then commit the files, then open the PR from `demo/failing-ci` into `main` and say in its body that it is a demo not to merge. Reuse anything that already exists instead of recreating it.
 
 **Complete this step when:**
+
 - The PR URL is returned to the user.
 
 ### Step 5. Schedule the bounded repair
@@ -144,6 +146,7 @@ If the result says `reused: true`, an earlier run for the same PR is still activ
 **Complete this step when:**
 
 - Task id is recorded.
+
 ### Step 6. Watch the repair
 
 Do not run `/cron run <id>`. The scheduler picks the task up at `next_run`,

@@ -8,14 +8,14 @@ demo_order: 3
 metadata:
   owner: Vincent
   last_changed_by: Jan
-  last_changed_at: 2026-09-29
+  last_changed_at: 2026-10-01
   usecases:
     - For interactive-shell users running a GitHub CI repair on their hosted gateway.
   requires:
-    - An interactive shell and an organization administrator account for hosted gateway access.
     - A reachable hosted gateway with a GitHub integration and an authenticated coding agent.
+    - An interactive shell and a signed-in OpenSRE account in the organization for hosted gateway access.
     - GitHub write access to the selected PR; demo mode also needs private-repository creation.
-  version: "2.4"
+  version: "2.5"
 ---
 
 # Delegate a remote CI repair
