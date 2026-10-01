@@ -170,6 +170,7 @@ def _write_curl_shim(bin_dir: Path, assets_dir: Path, release_json_by_url: dict[
                 printf '%s\n' "$github_auth_seen" >> "$OPENSRE_TEST_GITHUB_AUTH_LOG"
               fi
               if [ "$github_auth_seen" -eq 1 ] && [ "${{OPENSRE_TEST_REJECT_GITHUB_TOKEN:-}}" = "1" ]; then
+                printf '{{"tag_name":"v0.0.0"}}'
                 echo "curl-shim: rejected GitHub authorization header" >&2
                 exit 22
               fi
