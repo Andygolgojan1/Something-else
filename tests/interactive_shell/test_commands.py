@@ -2165,11 +2165,13 @@ class TestRunCliCommand:
 
         assert m._cmd_cron(session, console, ["run", "abc123"]) is True
         assert "/cron logs abc123" in buf.getvalue()
-        assert session.history[-1]["ok"] is True
+        assert session.history[-1]["ok"] is False
+        assert session.history[-1]["slash_outcome"] == "still_running"
         deadline = time.monotonic() + 15
         while not finished.exists() and time.monotonic() < deadline:
             time.sleep(0.05)
         assert finished.read_text() == "done"
+        m.shutdown_kept_cli_commands()
 
     def test_captured_child_renders_to_terminal_width_minus_replay_gutter(
         self,

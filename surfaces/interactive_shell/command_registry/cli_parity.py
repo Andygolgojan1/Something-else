@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import threading
+from typing import BinaryIO
 
 from rich.console import Console
 from rich.markup import escape
@@ -30,6 +31,10 @@ from tools.interactive_shell.subprocess import (
 
 _UPDATE_SUBPROCESS_TIMEOUT_SECONDS = 300
 _HEADLESS_CLI_SUBPROCESS_TIMEOUT_SECONDS = 90.0
+_PIPE_DRAIN_CHUNK = 65536
+_STILL_RUNNING_OUTCOME = "still_running"
+_KEPT_CLI_COMMANDS: list[threading.Thread] = []
+_KEPT_CLI_LOCK = threading.Lock()
 
 
 def _captured_child_env(console: Console, *, headless: bool) -> dict[str, str]:
@@ -90,35 +95,162 @@ def _cli_command_succeeded(exit_code: int | None) -> bool:
     return exit_code == 0
 
 
+def shutdown_kept_cli_commands() -> None:
+    """Wait until background CLI children have exited and their pipes are drained.
+
+    The children are not killed. A scheduled tick holds its claim until it
+    finishes, and stopping it is what blocked the task's later ticks.
+    """
+    with _KEPT_CLI_LOCK:
+        threads = tuple(_KEPT_CLI_COMMANDS)
+    for thread in threads:
+        thread.join()
+
+
+def _pump_pipe(
+    stream: BinaryIO,
+    sink: bytearray,
+    discard: threading.Event,
+    lock: threading.Lock,
+) -> None:
+    """Read ``stream`` until EOF, keeping bytes only until ``discard`` is set."""
+    try:
+        while True:
+            chunk = stream.read(_PIPE_DRAIN_CHUNK)
+            if not chunk:
+                return
+            with lock:
+                if not discard.is_set():
+                    sink.extend(chunk)
+    finally:
+        stream.close()
+
+
+def _snapshot_and_discard(
+    stdout_buf: bytearray,
+    stderr_buf: bytearray,
+    discard: threading.Event,
+    lock: threading.Lock,
+) -> tuple[bytes, bytes]:
+    with lock:
+        discard.set()
+        stdout = bytes(stdout_buf)
+        stderr = bytes(stderr_buf)
+        stdout_buf.clear()
+        stderr_buf.clear()
+    return stdout, stderr
+
+
+def _reap_kept_cli_command(
+    process: subprocess.Popen[bytes], readers: list[threading.Thread]
+) -> None:
+    """Join pipe readers and reap the child once it exits. Output is discarded."""
+    try:
+        for reader in readers:
+            reader.join()
+        process.wait()
+    finally:
+        with _KEPT_CLI_LOCK:
+            current = threading.current_thread()
+            if current in _KEPT_CLI_COMMANDS:
+                _KEPT_CLI_COMMANDS.remove(current)
+
+
+def _hand_off_kept_cli_command(
+    process: subprocess.Popen[bytes], readers: list[threading.Thread]
+) -> None:
+    thread = threading.Thread(
+        target=_reap_kept_cli_command,
+        args=(process, readers),
+        name="cli-command-reaper",
+        daemon=False,
+    )
+    with _KEPT_CLI_LOCK:
+        _KEPT_CLI_COMMANDS.append(thread)
+    thread.start()
+
+
+def _start_pipe_readers(
+    process: subprocess.Popen[bytes],
+    stdout_buf: bytearray,
+    stderr_buf: bytearray,
+    discard: threading.Event,
+    lock: threading.Lock,
+) -> list[threading.Thread]:
+    readers: list[threading.Thread] = []
+    for stream, sink, name in (
+        (process.stdout, stdout_buf, "cli-command-stdout"),
+        (process.stderr, stderr_buf, "cli-command-stderr"),
+    ):
+        if stream is None:
+            continue
+        reader = threading.Thread(
+            target=_pump_pipe,
+            args=(stream, sink, discard, lock),
+            name=name,
+            daemon=False,
+        )
+        reader.start()
+        readers.append(reader)
+    return readers
+
+
+def _decode_pipe(data: bytes) -> str:
+    return data.decode("utf-8", errors="replace")
+
+
 def _run_captured_keep_running(
     cmd: list[str], *, timeout: float | None, env: dict[str, str]
 ) -> subprocess.CompletedProcess[str]:
     """``subprocess.run`` with captured output, except a timeout leaves the child running.
 
-    The timed-out child is handed to a reaper thread that keeps draining its
-    pipes, so it neither blocks on a full pipe nor lingers as a zombie.
+    After the timeout, pipe readers discard further output and a non-daemon
+    reaper waits for the child. The child is not killed: its claim stays live
+    until the tick finishes, and a full pipe must not stall it.
     """
     process = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
+        start_new_session=True,
         env=env,
     )
+    discard = threading.Event()
+    lock = threading.Lock()
+    stdout_buf = bytearray()
+    stderr_buf = bytearray()
+    readers = _start_pipe_readers(process, stdout_buf, stderr_buf, discard, lock)
     handed_off = False
     try:
-        stdout, stderr = process.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        threading.Thread(target=process.communicate, name="cli-command-reaper", daemon=True).start()
-        handed_off = True
-        raise
+        try:
+            process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            partial_stdout, partial_stderr = _snapshot_and_discard(
+                stdout_buf, stderr_buf, discard, lock
+            )
+            _hand_off_kept_cli_command(process, readers)
+            handed_off = True
+            raise subprocess.TimeoutExpired(
+                cmd,
+                0.0 if timeout is None else timeout,
+                output=partial_stdout,
+                stderr=partial_stderr,
+            ) from None
+        for reader in readers:
+            reader.join()
+        return subprocess.CompletedProcess(
+            cmd,
+            process.returncode if process.returncode is not None else 1,
+            _decode_pipe(bytes(stdout_buf)),
+            _decode_pipe(bytes(stderr_buf)),
+        )
     finally:
         if not handed_off and process.poll() is None:
             process.kill()
             process.wait()
-    return subprocess.CompletedProcess(cmd, process.returncode, stdout, stderr)
+        if not handed_off:
+            for reader in readers:
+                reader.join()
 
 
 def run_cli_command(
@@ -179,6 +311,7 @@ def run_cli_command(
     )
     child_env[OPENSRE_PARENT_INTERACTIVE_SHELL_ENV] = "1"
     exit_code: int | None = 0
+    backgrounded = False
     try:
         if should_capture:
             if keep_running_hint is not None:
@@ -250,11 +383,23 @@ def run_cli_command(
         if keep_running_hint is None:
             console.print(f"[{ERROR}]error:[/] CLI command timed out")
         else:
-            exit_code = 0
-            console.print(
-                f"[{DIM}]Still running in the background after {exc.timeout:.0f}s; "
-                f"it was not stopped. {escape(keep_running_hint)}[/]"
+            # The tick is still in progress. Record that explicitly so slash
+            # history is not a successful repair, and do not fail the turn:
+            # a failure here is what made the agent run the command again.
+            backgrounded = True
+            waited = exc.timeout if isinstance(exc.timeout, int | float) else 0
+            message = (
+                f"Still running in the background after {waited:.0f}s; "
+                f"it was not stopped. {keep_running_hint}"
             )
+            if session is not None:
+                session.complete_latest_record(
+                    "slash",
+                    ok=False,
+                    slash_outcome=_STILL_RUNNING_OUTCOME,
+                    response_text=message,
+                )
+            console.print(f"[{DIM}]{escape(message)}[/]")
     except KeyboardInterrupt:
         exit_code = None
         # Same cursor hazard as the normal-exit path: Ctrl+C can land mid-line while
@@ -268,11 +413,13 @@ def run_cli_command(
     if session is not None and not should_capture:
         set_turn_outcome_hint(session, format_wizard_cli_outcome(args, exit_code=exit_code))
     ok = _cli_command_succeeded(exit_code)
-    if session is not None and not ok:
+    if session is not None and not ok and not backgrounded:
         session.mark_latest(ok=False, kind="slash")
-    # Headless/gateway surfaces need the real exit status for slash analytics.
-    # Interactive REPL handlers must not return False to dispatch_slash on CLI
-    # failure — that would exit the shell (/exit is the only intentional False).
+    # A backgrounded tick already recorded ``still_running``. Returning True
+    # keeps the REPL (and a headless turn) from treating the handoff as a
+    # failed command. Headless surfaces otherwise need the real exit status.
+    if backgrounded:
+        return True
     return ok if headless else True
 
 
