@@ -305,10 +305,12 @@ download_text() {
   # The canary supplies this dedicated token to avoid shared Actions-runner
   # rate limits. Public installs never inherit ambient GitHub credentials.
   if [ -n "$github_token" ]; then
-    if curl "${CURL_FLAGS[@]}" \
+    local authenticated_response
+    if authenticated_response="$(curl "${CURL_FLAGS[@]}" \
       "${headers[@]}" \
       -H "Authorization: Bearer ${github_token}" \
-      "$url"; then
+      "$url")"; then
+      printf '%s' "$authenticated_response"
       return
     fi
     warn "Authenticated GitHub metadata lookup failed; retrying without credentials."
