@@ -45,7 +45,7 @@ Use `update_plan` to create the live plan from the workflow headings below:
 - [ ] Select the failing PR, or confirm the authorized demo scope.
 - [ ] Create the demo repository, failing branch, and PR (demo only).
 - [ ] Schedule the bounded repair with schedule_ci_repair_loop and record its task id.
-- [ ] Run the first tick with `/cron run <id>` and read its report.
+- [ ] Wait for the scheduled tick with `get_ci_repair_loop` and read its report.
 - [ ] Verify the repair with one `pr view` call.
 - [ ] Save evidence, remove the demo loop and resources, verify with `/cron list`.
 - [ ] Respond with the outcome report as Markdown.
@@ -133,7 +133,7 @@ One call for the PR selected in Step 3 or created in Step 4:
 
 `schedule_ci_repair_loop(owner="<owner>", repo="<repo>", pr_number=<n>)`
 
-The tool starts and checks the local background scheduler itself, registers a real 10-second cron task whose tick calls the CI fixer directly, and stops the task on its own once the PR is green or ten minutes have passed.
+The tool starts and checks the local background scheduler itself, registers a real 30-second cron task whose tick calls the CI fixer directly, and stops the task on its own once the PR is green or ten minutes have passed.
 
 It asks for one approval
 
@@ -144,32 +144,30 @@ If the result says `reused: true`, an earlier run for the same PR is still activ
 **Complete this step when:**
 
 - Task id is recorded.
+### Step 6. Watch the repair
 
-### Step 6. Run the first tick
+Do not run `/cron run <id>`. The scheduler picks the task up at `next_run`,
+at most 30 seconds away, and owns the repair from there: attempts, CI
+verification, and the deadline. On the hosted gateway a slash command is
+stopped after 90 seconds, and a stopped `/cron run` takes the repair with it.
 
-`slash_invoke` `{"command": "/cron", "args": ["run", "<id>"]}`. It blocks
-until the repair finishes and prints the tick's report; that report is the
-detection and repair evidence. Follow with one
-`{"command": "/cron", "args": ["logs", "<id>", "--limit", "1"]}` only if the
-run output did not include the status.
+Call `get_ci_repair_loop(task_id="<id>", wait_seconds=60)`, one call per
+response, until the result has `terminal: true`. Its `response_text` is the
+detection and repair evidence.
 
 Skip this step when Step 3 found no failing PR.
 
 Read the work outcome separately from delivery: a delivered report can describe
 a blocked or failed repair.
 
-If delivery failed after work completed, retry with
-`/cron run <id> --failed-only`; this resends the retained report.
+Do not schedule again or ask for another attempt; the task makes up to three
+attempts on its own. If the result's deadline has passed and the run is still
+not terminal, stop waiting and go to Step 7: the PR shows what happened.
 
 **Complete this step when:**
 
-- The tick reports `Outcome: succeeded` with a repair commit, or
-- 5 retries (below) have been made and its outcome, whatever it is, is recorded.
-
-**Troubleshooting:**
-
-- For no-op, or a refusal, return to the user its reason and record it.
-- Then nudge the coding agent to do another attempt to resolve the issue based on the latest information
+- The result has `terminal: true` and its outcome is recorded, or
+- The deadline has passed and the run is recorded as unfinished.
 
 ### Step 7. Verify the repair
 
