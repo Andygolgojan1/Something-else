@@ -296,10 +296,20 @@ download_to() {
 
 download_text() {
   local url="$1"
+  local -a headers=(
+    -H "Accept: application/vnd.github+json"
+    -H "User-Agent: opensre-install-script"
+  )
+
+  # GitHub Actions runners share unauthenticated API rate limits. Honor the
+  # standard token when a caller already provides one, while keeping public
+  # installs unauthenticated by default.
+  if [ -n "${GITHUB_TOKEN:-}" ]; then
+    headers+=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+  fi
 
   curl "${CURL_FLAGS[@]}" \
-    -H "Accept: application/vnd.github+json" \
-    -H "User-Agent: opensre-install-script" \
+    "${headers[@]}" \
     "$url"
 }
 
