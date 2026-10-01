@@ -7,8 +7,8 @@ through three tools, and the tick prompt described "invoke the
 repair-github-ci workflow" instead of naming ``fix_github_pr_ci``. This suite
 pins the corrected card: the loop is created by one spelled-out
 ``schedule_ci_repair_loop`` call (the tool owns cadence and the tick), the
-first tick is forced with ``/cron run``, verification is a single read, and
-nothing is created before the repository question.
+scheduler fires that tick (a forced ``/cron run`` is forbidden), verification
+is a single read, and nothing is created before the repository question.
 """
 
 from __future__ import annotations
@@ -116,10 +116,10 @@ def _recording_tool(name: str, calls: list[tuple[str, dict[str, Any]]]) -> Regis
     )
 
 
-def test_skill_card_spells_out_the_loop_call_and_forced_first_tick() -> None:
+def test_skill_card_spells_out_the_loop_call_and_waits_for_the_scheduler() -> None:
     frontmatter, _ = parse_frontmatter(_SKILL_PATH.read_text(encoding="utf-8"))
     assert frontmatter["name"] == SCHEDULING_GITHUB_CI_REPAIRS_SKILL_NAME
-    assert frontmatter["includes"] == ["common/ask_once.md"]
+    assert "includes" not in frontmatter
     body = load_skill_body(SCHEDULING_GITHUB_CI_REPAIRS_SKILL_NAME)
 
     # The loop is created by one spelled-out tool call that owns the cadence;
@@ -129,8 +129,13 @@ def test_skill_card_spells_out_the_loop_call_and_forced_first_tick() -> None:
     assert body.count("schedule_ci_repair_loop(") == 1
     assert '"--cron"' not in body and "/cron add" not in body
     assert "--timezone" not in body and "Poll every" not in body
-    # The first tick is forced, not awaited; verification is a single read.
-    assert '"args": ["run", "<id>"]' in body
+    # The scheduler owns the first tick. Forcing ``/cron run`` is forbidden:
+    # on the hosted gateway a slash command is stopped after 90 seconds and
+    # takes the repair with it. Verification stays a single read.
+    assert '"args": ["run", "<id>"]' not in body
+    assert "Do not run `/cron run <id>`." in body
+    assert 'get_ci_repair_loop(task_id="<id>", wait_seconds=60)' in body
+    assert "terminal: true" in body
     assert "headRefOid,commits,statusCheckRollup" in body
     assert "Do not run the tests locally" in body
     # The demo loop is removed after the evidence is saved; the repository is

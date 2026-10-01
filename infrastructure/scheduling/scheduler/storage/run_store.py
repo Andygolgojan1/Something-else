@@ -30,7 +30,9 @@ logger = logging.getLogger(__name__)
 #: than widening to every destination.
 _TARGETED_RUN_SCAN_LIMIT = 50
 _RECOVERABLE_RUN_SCAN_LIMIT = 100
-_CLAIM_LEASE_SECONDS = 30 * 60
+#: Live owners renew every third of the lease, so its length only bounds how
+#: long a claimant that died mid-tick keeps the task's later ticks from running.
+_CLAIM_LEASE_SECONDS = 2 * 60
 _RUN_COLUMNS = (
     "task_id, fire_time, started_at, finished_at, status, posted_message_id, "
     "error, provider, targets, attempt, id, report, report_summary, work_outcome"

@@ -8,14 +8,14 @@ demo_order: 3
 metadata:
   owner: Vincent
   last_changed_by: Jan
-  last_changed_at: 2026-09-29
+  last_changed_at: 2026-10-01
   usecases:
     - For interactive-shell users running a GitHub CI repair on their hosted gateway.
   requires:
-    - An interactive shell and an organization administrator account for hosted gateway access.
     - A reachable hosted gateway with a GitHub integration and an authenticated coding agent.
+    - An interactive shell and a signed-in OpenSRE account in the organization for hosted gateway access.
     - GitHub write access to the selected PR; demo mode also needs private-repository creation.
-  version: "2.4"
+  version: "2.5"
 ---
 
 # Delegate a remote CI repair
@@ -53,7 +53,7 @@ Use `update_plan` to create the live plan from the workflow headings below:
 - [ ] Create the demo repository, failing branch, and PR (demo only).
 - [ ] Confirm GitHub reports the failure with list_github_actions_workflow_runs.
 - [ ] Schedule the bounded repair with schedule_ci_repair_loop and record its task id.
-- [ ] Run the first tick with `/cron run <id>` and read its report.
+- [ ] Wait for the scheduled tick with get_ci_repair_loop and read its report.
 - [ ] Verify the repair with one `pr view` call.
 - [ ] Save evidence, remove the demo loop, and verify with `/cron list`. Nothing on GitHub is deleted; the demo repository is kept.
 - [ ] Respond with the outcome report as Markdown.
@@ -116,9 +116,9 @@ Show the final repair plan titled `Remote Repair Plan`. Put the probe's findings
 
 ### Delegate the repair
 
-- Send one `ask_hosted_gateway` prompt: "Use `scheduling-github-ci-repairs` for <target>. 
-- Delete nothing on GitHub." 
+- Send one `ask_hosted_gateway` prompt: "This is a new request. Start a new plan from `scheduling-github-ci-repairs` for <target>; do not reuse plan steps, task IDs, or repositories from earlier in this conversation. Delete nothing on GitHub."
 - Pass the target as `facts` (`demo`, `owner`, `repo`, `pr_number`). Keep the prompt ID.
+
 
 **Complete when:** the gateway returned a task ID and outcome, or a blocker.
 
