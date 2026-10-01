@@ -19,8 +19,6 @@ metadata:
     - For the demo, a GitHub token that can create a private repository and an example PR
   version: "0.74"
 script_tools: references/script-tools.md
-includes:
-  - common/ask_once.md
 ---
 
 # Onboarding for Scheduled CI fixes
