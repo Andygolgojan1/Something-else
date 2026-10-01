@@ -119,7 +119,7 @@ def _recording_tool(name: str, calls: list[tuple[str, dict[str, Any]]]) -> Regis
 def test_skill_card_spells_out_the_loop_call_and_waits_for_the_scheduler() -> None:
     frontmatter, _ = parse_frontmatter(_SKILL_PATH.read_text(encoding="utf-8"))
     assert frontmatter["name"] == SCHEDULING_GITHUB_CI_REPAIRS_SKILL_NAME
-    assert frontmatter["includes"] == ["common/ask_once.md"]
+    assert "includes" not in frontmatter
     body = load_skill_body(SCHEDULING_GITHUB_CI_REPAIRS_SKILL_NAME)
 
     # The loop is created by one spelled-out tool call that owns the cadence;

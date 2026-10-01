@@ -250,13 +250,9 @@ def test_onboarding_children_load_shared_rules_once() -> None:
     reliability = skills.load_skill_body("scheduling-github-ci-repairs")
     analytics = skills.load_skill_body("analyzing-github-ci-performance")
     analytics_card = by_name["analyzing-github-ci-performance"].path.read_text(encoding="utf-8")
-    # Shared rules resolve from the skills-tree ``common/`` folder and are
-    # appended exactly once, never copied into the card body.
-    assert by_name["scheduling-github-ci-repairs"].includes == ("common/ask_once.md",)
-    assert reliability.count("Ask each question once.") == 1
-    assert "Ask each question once." not in by_name["scheduling-github-ci-repairs"].path.read_text(
-        encoding="utf-8"
-    )
+    # The scheduling card no longer includes a shared ask-once rule.
+    assert by_name["scheduling-github-ci-repairs"].includes == ()
+    assert "Ask each question once." not in reliability
     # The analytics card lists no shared rules; its plan carries its own wording.
     assert by_name["analyzing-github-ci-performance"].includes == ()
     assert "SHARED RULES from" not in analytics
