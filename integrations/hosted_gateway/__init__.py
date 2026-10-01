@@ -2,6 +2,7 @@
 
 from integrations.hosted_gateway.client import (
     ERR_ALREADY_ANSWERED,
+    ERR_GATEWAY_UNAVAILABLE,
     ERR_INSECURE_APP_URL,
     ERR_INVALID_RESPONSE,
     ERR_NOT_PROVISIONED,
@@ -14,6 +15,7 @@ from integrations.hosted_gateway.client import (
     ERR_UNKNOWN_PROMPT,
     ERR_UNREACHABLE,
     EXPECTED_ERRORS,
+    TRANSIENT_ERRORS,
     GatewayHealth,
     HostedGatewayClient,
     HostedGatewayError,
@@ -25,6 +27,7 @@ from integrations.hosted_gateway.client import (
 
 __all__ = [
     "ERR_ALREADY_ANSWERED",
+    "ERR_GATEWAY_UNAVAILABLE",
     "ERR_INSECURE_APP_URL",
     "ERR_INVALID_RESPONSE",
     "ERR_NOT_PROVISIONED",
@@ -44,4 +47,5 @@ __all__ = [
     "PromptProgress",
     "PromptQuestion",
     "PromptRecord",
+    "TRANSIENT_ERRORS",
 ]

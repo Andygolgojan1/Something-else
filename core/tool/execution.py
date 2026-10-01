@@ -64,6 +64,7 @@ def report_run_error(
     severity: ToolErrorSeverity = "error",
     logger: logging.Logger | None = None,
     extras: dict[str, Any] | None = None,
+    include_traceback: bool | None = None,
 ) -> None:
     """Log + Sentry-capture an error swallowed by a tool wrapper.
 
@@ -76,6 +77,8 @@ def report_run_error(
     A failure whose cause chain ends in an unreachable service (refused, DNS,
     timeout) is a warning without a traceback, as in ``capture_service_error``:
     the shell prints ERROR records, and that stack is only HTTP client internals.
+    ``include_traceback`` overrides that default for a failure the caller already
+    classified, such as a vendor's own "service unavailable" answer.
     """
     tags: dict[str, str] = {
         "surface": "tool",
@@ -93,7 +96,7 @@ def report_run_error(
         severity="warning" if unreachable else severity,
         tags=tags,
         extras=extras,
-        include_traceback=not unreachable,
+        include_traceback=not unreachable if include_traceback is None else include_traceback,
     )
 
 

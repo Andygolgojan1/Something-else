@@ -16,6 +16,7 @@ from config.constants.hosted_gateway import (
     HOSTED_GATEWAY_PROMPT_POLL_SECONDS,
     HOSTED_GATEWAY_PROMPT_WAIT_SECONDS,
     HOSTED_GATEWAY_QUEUE_NOTICE_SECONDS,
+    HOSTED_GATEWAY_UNANSWERED_GRACE_SECONDS,
 )
 from core.agent_harness.spi.handoff import AskUserQuestion, parse_ask_user_answers, question_key
 from core.agent_harness.spi.session_state import (
@@ -28,6 +29,7 @@ from core.domain.types.tools import ToolSurface
 from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from integrations.hosted_gateway.client import (
+    TRANSIENT_ERRORS,
     HostedGatewayClient,
     HostedGatewayError,
     PromptChoice,
@@ -46,6 +48,7 @@ _HOSTED_PROMPT_INTERACTION_PREFIX = "hosted_prompt:"
 #: Progress lines come from the gateway's own tools, whose labels say "this machine".
 _GATEWAY_PROGRESS_PREFIX = "on the gateway: "
 _QUEUED_NOTICE = "waiting for a free slot on the gateway (another conversation is using it)"
+_UNANSWERED_NOTICE = "the gateway is not answering right now; still waiting for it"
 #: The one vendor whose credential refusals have a known, ordered fix.
 _GITHUB_VENDOR = "github"
 _GITHUB_REFUSAL_LEAD = (
@@ -94,6 +97,11 @@ _ASKING_WITHOUT_SHELL = (
 _STILL_RUNNING = (
     "The hosted gateway is still working on prompt {prompt_id} after "
     "{waited} seconds. Ask again later with that id to read the result."
+)
+_LOST_CONTACT = (
+    "Lost contact with the hosted gateway while it worked on prompt {prompt_id}. Ask again "
+    "with that id in a minute; if the gateway restarted meanwhile, it no longer holds the "
+    "prompt and the prompt has to be sent again."
 )
 _FAILED_INTEGRATIONS = (
     "The hosted gateway's {vendors} integration failed during this request. The gateway "
@@ -199,11 +207,13 @@ def ask_hosted_gateway(
     if not prompt.strip() and not prompt_id.strip():
         return _refusal("Give the hosted gateway a prompt, or a prompt id to read.")
     scope = _shell_scope(context)
+    in_flight = ""
     try:
         with HostedGatewayClient.from_account() as client:
             record, sent_at = _submit_or_continue(
                 client, prompt.strip(), dict(facts or {}), prompt_id.strip(), scope
             )
+            in_flight = record.prompt_id
             record, waited = _wait_until_settled(
                 client, record, _ProgressRelay(context), sent_at=sent_at
             )
@@ -214,11 +224,23 @@ def ask_hosted_gateway(
                 record = client.prompt_result(parent_id)
             integrations_url = f"{client.app_url}{HOSTED_GATEWAY_INTEGRATIONS_PATH}"
     except HostedGatewayError as exc:
-        return failure_output(exc, tool_name=TOOL_NAME, component=_COMPONENT)
+        return _failure(exc, in_flight)
     outcome = _outcome(record, waited, integrations_url, scope)
     if rejected and record.state == "needs_input":
         outcome["response_text"] = _ANSWER_REJECTED + outcome["response_text"]
     return outcome
+
+
+def _failure(exc: HostedGatewayError, in_flight: str) -> dict[str, Any]:
+    """A failed call's result; once a prompt was accepted, a transient failure keeps its id.
+
+    Without the id the caller cannot read the prompt later, and a resend would run it twice.
+    """
+    out = failure_output(exc, tool_name=TOOL_NAME, component=_COMPONENT)
+    if not in_flight or exc.code not in TRANSIENT_ERRORS:
+        return out
+    text = _LOST_CONTACT.format(prompt_id=in_flight)
+    return {**out, "prompt_id": in_flight, "error": text, "response_text": text}
 
 
 def _answer_was_rejected(record: PromptRecord) -> bool:
@@ -282,13 +304,16 @@ def _wait_until_settled(
     """Poll the app until the gateway settles the prompt or the wait budget is spent.
 
     ``sent_at`` is when the prompt left this machine; the queue notice counts
-    from there, so a slow submission does not delay it.
+    from there, so a slow submission does not delay it. A read nobody answered
+    is polled again until the gateway has been silent for the grace period;
+    then that failure is raised.
     """
     started = time.monotonic()
     queued_since = started if sent_at is None else sent_at
     current = record
     relay.show(current)
     queue_noticed = False
+    silent_since: float | None = None
     while not current.settled:
         waited = time.monotonic() - started
         if waited >= HOSTED_GATEWAY_PROMPT_WAIT_SECONDS:
@@ -299,7 +324,19 @@ def _wait_until_settled(
             relay.note(_QUEUED_NOTICE)
             queue_noticed = True
         time.sleep(HOSTED_GATEWAY_PROMPT_POLL_SECONDS)
-        current = client.prompt_result(record.prompt_id)
+        try:
+            current = client.prompt_result(record.prompt_id)
+        except HostedGatewayError as exc:
+            if exc.code not in TRANSIENT_ERRORS:
+                raise
+            now = time.monotonic()
+            if silent_since is None:
+                silent_since = now
+                relay.note(_UNANSWERED_NOTICE)
+            elif now - silent_since >= HOSTED_GATEWAY_UNANSWERED_GRACE_SECONDS:
+                raise
+            continue
+        silent_since = None
         relay.show(current)
     return current, time.monotonic() - started
 

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import logging
+from http import HTTPStatus
 from types import TracebackType
 from typing import Any
 
@@ -16,6 +18,7 @@ from core.agent_harness.tools.tool_context import ACTION_TOOL_CONTEXT_RESOURCE_K
 from core.tool import AgentToolContext
 from integrations.hosted_gateway import (
     ERR_ALREADY_ANSWERED,
+    ERR_GATEWAY_UNAVAILABLE,
     ERR_NOT_RUNNING,
     ERR_UNKNOWN_PROMPT,
     HostedGatewayClient,
@@ -106,11 +109,14 @@ def test_an_id_that_is_not_a_prompt_id_never_reaches_the_network() -> None:
 
 
 class _App:
-    """A fake signed-in client whose gateway settles after a given number of polls."""
+    """A fake signed-in client whose gateway settles after a given number of polls.
+
+    A ``HostedGatewayError`` among the states is raised by the call that reaches it.
+    """
 
     app_url = "https://app.test"
 
-    def __init__(self, states: list[PromptRecord]) -> None:
+    def __init__(self, states: list[PromptRecord | HostedGatewayError]) -> None:
         self._states = list(states)
         self.sent: list[tuple[str, dict[str, str]]] = []
         self.polled: list[str] = []
@@ -129,15 +135,21 @@ class _App:
 
     def send_prompt(self, prompt: str, *, context: dict[str, str]) -> PromptRecord:
         self.sent.append((prompt, context))
-        return self._states.pop(0)
+        return self._next()
 
     def prompt_result(self, prompt_id: str) -> PromptRecord:
         self.polled.append(prompt_id)
-        return self._states.pop(0)
+        return self._next()
 
     def answer_prompt(self, prompt_id: str, answer: str) -> PromptRecord:
         self.answered.append((prompt_id, answer))
-        return self._states.pop(0)
+        return self._next()
+
+    def _next(self) -> PromptRecord:
+        state = self._states.pop(0)
+        if isinstance(state, HostedGatewayError):
+            raise state
+        return state
 
 
 def _tool_context(session: SessionCore, turn_user_message: str) -> AgentToolContext:
@@ -292,6 +304,76 @@ def test_the_wait_budget_hands_back_the_prompt_id(monkeypatch: pytest.MonkeyPatc
     # Assert
     assert out["success"] is False and out["state"] == "queued"
     assert _ID in out["response_text"] and "still working" in out["response_text"]
+
+
+def test_a_gateway_that_stops_answering_briefly_is_waited_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One 502 mid-wait used to end the call, and the model never learned the prompt id."""
+    # Arrange
+    app = _App(
+        [
+            PromptRecord(_ID, "running"),
+            HostedGatewayError(ERR_GATEWAY_UNAVAILABLE, HTTPStatus.BAD_GATEWAY),
+            HostedGatewayError(ERR_GATEWAY_UNAVAILABLE, HTTPStatus.BAD_GATEWAY),
+            PromptRecord(_ID, "done", answer="pong"),
+        ]
+    )
+    _signed_in_with(monkeypatch, app)
+    updates: list[Any] = []
+    context = AgentToolContext(resolved_integrations={}, resources={}, _emit_update=updates.append)
+
+    # Act
+    out = ask_hosted_gateway(prompt="ping", context=context)
+
+    # Assert: the answer arrives, and the user heard once why the wait got longer
+    assert out["state"] == "done" and out["response_text"] == "pong"
+    assert updates == [{"progress": gateway_prompt._UNANSWERED_NOTICE}]
+
+
+def test_a_gateway_silent_past_the_grace_hands_back_the_prompt_id_without_a_stack(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Regression: four 502 reads each dumped a traceback into the shell between progress lines."""
+    # Arrange
+    unavailable = HostedGatewayError(ERR_GATEWAY_UNAVAILABLE, HTTPStatus.BAD_GATEWAY)
+    app = _App([PromptRecord(_ID, "running"), unavailable, unavailable])
+    _signed_in_with(monkeypatch, app)
+    monkeypatch.setattr(gateway_prompt, "HOSTED_GATEWAY_UNANSWERED_GRACE_SECONDS", 0.0)
+
+    # Act
+    with caplog.at_level(logging.DEBUG, logger="tools"):
+        out = ask_hosted_gateway(prompt="fix ci")
+
+    # Assert
+    assert out["success"] is False and out["error_kind"] == ERR_GATEWAY_UNAVAILABLE
+    assert out["prompt_id"] == _ID and _ID in out["response_text"]
+    assert [r.levelno for r in caplog.records] == [logging.WARNING]
+    assert "Traceback" not in caplog.text
+
+
+def test_a_prompt_the_restart_dropped_ends_the_wait_at_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A restarted gateway holds no earlier prompt; waiting on it longer cannot help."""
+    # Arrange
+    app = _App(
+        [
+            PromptRecord(_ID, "running"),
+            HostedGatewayError(ERR_GATEWAY_UNAVAILABLE, HTTPStatus.BAD_GATEWAY),
+            HostedGatewayError(ERR_UNKNOWN_PROMPT, HTTPStatus.NOT_FOUND),
+            PromptRecord(_ID, "done", answer="never read"),
+        ]
+    )
+    _signed_in_with(monkeypatch, app)
+
+    # Act
+    out = ask_hosted_gateway(prompt="fix ci")
+
+    # Assert
+    assert out["error_kind"] == ERR_UNKNOWN_PROMPT and "send it again" in out["response_text"]
+    assert len(app.polled) == 2
 
 
 def test_the_tool_is_external_takes_no_identifier_and_refuses_an_empty_request() -> None:
