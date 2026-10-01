@@ -243,8 +243,9 @@ class TestClaimStore:
         long a claimant that died mid-tick keeps the task's later ticks out.
         """
         claim = _claimed(db_path, "task1", "2026-01-01T09:00")
+        now = datetime.now(UTC)
 
-        assert claim.lease_expires_at <= datetime.now(UTC) + timedelta(minutes=2)
+        assert now + timedelta(seconds=90) < claim.lease_expires_at <= now + timedelta(minutes=2)
 
     def test_expired_claims_are_visible_to_the_scheduler_recovery_sweep(
         self, db_path: Path
