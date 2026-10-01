@@ -7,6 +7,7 @@ import json
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -2130,6 +2131,45 @@ class TestRunCliCommand:
         console, _buf = _capture()
         assert m.run_cli_command(console, ["remote", "health"], session=session) is False
         assert session.history[-1]["ok"] is False
+
+    def test_headless_cron_run_keeps_its_tick_running_past_the_reply_window(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """A gateway ``/cron run`` past the reply window must finish, not be killed.
+
+        Killing it took a CI repair's supervisor and worker down mid-verification
+        and left the tick's claim blocking the task's later ticks for its lease.
+        The child also writes more than a pipe buffer after the window, so it
+        only finishes if something keeps draining its output.
+        """
+        from core.agent_harness.session import SessionCore
+        from core.agent_harness.session.persistence.memory import InMemorySessionStore
+        from surfaces.interactive_shell.command_registry import cli_parity as m
+
+        finished = tmp_path / "finished"
+        child = (
+            "import pathlib, sys, time\n"
+            "time.sleep(0.5)\n"
+            "sys.stdout.write('x' * 200_000)\n"
+            f"pathlib.Path({str(finished)!r}).write_text('done')\n"
+        )
+        monkeypatch.setattr(
+            m, "build_opensre_cli_argv", lambda _args: [sys.executable, "-c", child]
+        )
+        monkeypatch.setattr(m, "_HEADLESS_CLI_SUBPROCESS_TIMEOUT_SECONDS", 0.1)
+        session = SessionCore(store=InMemorySessionStore())
+        session.record("slash", "/cron run abc123", ok=True)
+        console, buf = _capture()
+
+        assert m._cmd_cron(session, console, ["run", "abc123"]) is True
+        assert "/cron logs abc123" in buf.getvalue()
+        assert session.history[-1]["ok"] is True
+        deadline = time.monotonic() + 15
+        while not finished.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert finished.read_text() == "done"
 
     def test_captured_child_renders_to_terminal_width_minus_replay_gutter(
         self,

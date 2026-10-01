@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import os
 import subprocess
+import threading
 
 from rich.console import Console
+from rich.markup import escape
 
 from config.constants import OPENSRE_PARENT_INTERACTIVE_SHELL_ENV
 from core.agent_harness.spi.session_state import session_terminal, set_turn_outcome_hint
@@ -88,6 +90,37 @@ def _cli_command_succeeded(exit_code: int | None) -> bool:
     return exit_code == 0
 
 
+def _run_captured_keep_running(
+    cmd: list[str], *, timeout: float | None, env: dict[str, str]
+) -> subprocess.CompletedProcess[str]:
+    """``subprocess.run`` with captured output, except a timeout leaves the child running.
+
+    The timed-out child is handed to a reaper thread that keeps draining its
+    pipes, so it neither blocks on a full pipe nor lingers as a zombie.
+    """
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+    )
+    handed_off = False
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        threading.Thread(target=process.communicate, name="cli-command-reaper", daemon=True).start()
+        handed_off = True
+        raise
+    finally:
+        if not handed_off and process.poll() is None:
+            process.kill()
+            process.wait()
+    return subprocess.CompletedProcess(cmd, process.returncode, stdout, stderr)
+
+
 def run_cli_command(
     console: Console,
     args: list[str],
@@ -95,6 +128,7 @@ def run_cli_command(
     session: Session | None = None,
     subprocess_timeout: float | None = None,
     capture_output: bool = True,
+    keep_running_hint: str | None = None,
 ) -> bool:
     """Helper to delegate complex or interactive Click commands to a child process.
 
@@ -106,6 +140,11 @@ def run_cli_command(
     capture, so a long-running network command can still stream live to the
     real TTY (e.g. the install script's own progress output during an update)
     while still being killed if it hangs.
+
+    ``keep_running_hint`` marks a captured command whose work must not be cut
+    off at the timeout (a scheduled tick holding its claim): the reply returns
+    at the timeout with the hint, telling the reader where the outcome lands,
+    and the child keeps running instead of being killed.
 
     ``capture_output`` (default ``True``) makes the helper capture stdout/stderr
     and replay them through ``console``, so delegated command output appears
@@ -142,16 +181,21 @@ def run_cli_command(
     exit_code: int | None = 0
     try:
         if should_capture:
-            captured_result = subprocess.run(
-                cmd,
-                check=False,
-                timeout=subprocess_timeout,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                env=child_env,
-            )
+            if keep_running_hint is not None:
+                captured_result = _run_captured_keep_running(
+                    cmd, timeout=subprocess_timeout, env=child_env
+                )
+            else:
+                captured_result = subprocess.run(
+                    cmd,
+                    check=False,
+                    timeout=subprocess_timeout,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    env=child_env,
+                )
             exit_code = captured_result.returncode
             print_command_output(
                 console,
@@ -203,7 +247,14 @@ def run_cli_command(
             style=ERROR,
             on_collapse=lambda body: _stash_collapsed_output(session, body),
         )
-        console.print(f"[{ERROR}]error:[/] CLI command timed out")
+        if keep_running_hint is None:
+            console.print(f"[{ERROR}]error:[/] CLI command timed out")
+        else:
+            exit_code = 0
+            console.print(
+                f"[{DIM}]Still running in the background after {exc.timeout:.0f}s; "
+                f"it was not stopped. {escape(keep_running_hint)}[/]"
+            )
     except KeyboardInterrupt:
         exit_code = None
         # Same cursor hazard as the normal-exit path: Ctrl+C can land mid-line while
@@ -347,6 +398,15 @@ def _cmd_cron(session: Session, console: Console, args: list[str]) -> bool:
     # TTY. Every other subcommand is a printer; the captured output reaches the
     # slash history row, where the action agent reads it back (e.g. task ids
     # from ``/cron list`` to chain a remove).
+    if len(args) >= 2 and args[0].lower() == "run":
+        # A tick holds its claim until it finishes, so a headless reply window
+        # must not kill it: the task's later ticks would stay blocked.
+        return run_cli_command(
+            console,
+            ["cron", *args],
+            session=session,
+            keep_running_hint=f"Read its outcome with `/cron logs {args[1]}`.",
+        )
     capture_output = not args or args[0].lower() != "start"
     return run_cli_command(console, ["cron", *args], capture_output=capture_output, session=session)
 

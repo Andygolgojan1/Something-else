@@ -234,6 +234,18 @@ class TestClaimStore:
         assert get_runs("task1", db_path=db_path)[0].status is TaskStatus.RUNNING
         assert get_runs("task1", db_path=db_path)[1].status is TaskStatus.ABANDONED
 
+    def test_a_dead_claimant_blocks_its_task_for_minutes_not_half_an_hour(
+        self, db_path: Path
+    ) -> None:
+        """A killed ``/cron run`` left its CI repair stuck ``running`` for 30 minutes.
+
+        Live owners renew every third of the lease, so the lease only bounds how
+        long a claimant that died mid-tick keeps the task's later ticks out.
+        """
+        claim = _claimed(db_path, "task1", "2026-01-01T09:00")
+
+        assert claim.lease_expires_at <= datetime.now(UTC) + timedelta(minutes=2)
+
     def test_expired_claims_are_visible_to_the_scheduler_recovery_sweep(
         self, db_path: Path
     ) -> None:
