@@ -25,6 +25,7 @@ from core.agent_harness.runtime import (
     HeadlessAgent,
     resolve_agent_ports,
 )
+from core.agent_harness.spi.activity import format_hosted_activity
 from infrastructure.turn_host.bindable_output import BindableOutput
 from infrastructure.turn_host.capability_policy import ensure_gateway_capability_policy
 from infrastructure.turn_host.session_lock import session_execution_lock
@@ -45,9 +46,21 @@ class _ToolStatusObserver:
         tool_name = str(data.get("name") or "").strip()
         if not tool_name:
             return
+        if self._accepts_hosted_activity():
+            activity = format_hosted_activity(tool_name, data.get("input"))
+            if activity is not None:
+                self._output.note_activity(activity.text, kind=activity.kind)
+            return
         self._output.set_tool_status(
             status_from_tool_start(tool_name, data.get("input"), describe=self._describe)
         )
+
+    def _accepts_hosted_activity(self) -> bool:
+        """True when the bound sink is the hosted-prompt collector, not a chat."""
+        target = getattr(self._output, "bound", None)
+        if target is None:
+            target = self._output
+        return getattr(target, "records_hosted_activity", False) is True
 
 
 class SessionAgentPool:

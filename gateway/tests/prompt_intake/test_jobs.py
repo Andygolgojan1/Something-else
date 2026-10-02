@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from config.constants.gateway import PROMPT_PROGRESS_LINE_MAX_CHARS
+from config.constants.gateway import (
+    PROMPT_PROGRESS_LINE_MAX_CHARS,
+    PROMPT_PROGRESS_PLAN_MAX_CHARS,
+    PROMPT_PROGRESS_PLAN_OMITTED,
+)
 from gateway.core.prompt_intake import (
     ALREADY_ANSWERED,
     NOT_WAITING,
@@ -153,6 +157,59 @@ def test_progress_keeps_the_newest_lines_with_growing_indices() -> None:
     assert [item["index"] for item in progress] == [1, 2]
     assert progress[0]["text"] == "Checking out the branch"
     assert len(progress[1]["text"]) == PROMPT_PROGRESS_LINE_MAX_CHARS
+
+
+def test_a_repeated_plan_is_not_recorded_again_and_a_tool_keeps_its_kind() -> None:
+    queue = PromptQueue(clock=_Clock().read)
+    job = queue.submit("fix ci", context={}, actor="a")
+    assert job is not None
+    checklist = "Plan · 1/2\n  ● List orgs\n  ○ Check permission"
+
+    queue.note(job, "GitHub CLI · gh api user", kind="tool")
+    queue.note(job, checklist, kind="plan")
+    queue.note(job, checklist, kind="plan")
+    queue.note(job, "Plan complete · 2/2\n  ✓ List orgs", kind="plan_done")
+
+    progress = job.view()["progress"]
+    assert [item["kind"] for item in progress] == ["tool", "plan", "plan_done"]
+    assert progress[0]["text"] == "GitHub CLI · gh api user"
+    assert "{'step'" not in progress[1]["text"]
+
+
+def test_a_plan_longer_than_a_status_line_keeps_every_step() -> None:
+    """The three-row status budget must not slice a hosted checklist mid-step."""
+    queue = PromptQueue(clock=_Clock().read)
+    job = queue.submit("fix ci", context={}, actor="a")
+    assert job is not None
+    steps = [
+        f"  ○ Confirm step {index}: record the hosted repair evidence before continuing"
+        for index in range(12)
+    ]
+    checklist = "Plan · 1/12\n  ● Start the repair\n" + "\n".join(steps)
+    assert len(checklist) > PROMPT_PROGRESS_LINE_MAX_CHARS
+    assert len(checklist) < PROMPT_PROGRESS_PLAN_MAX_CHARS
+
+    queue.note(job, checklist, kind="plan")
+
+    assert job.view()["progress"][0]["text"] == checklist
+
+
+def test_an_oversized_plan_drops_whole_steps_and_says_so() -> None:
+    queue = PromptQueue(clock=_Clock().read)
+    job = queue.submit("fix ci", context={}, actor="a")
+    assert job is not None
+    step = "  ○ " + ("confirm the repair outcome." * 200)
+    checklist = "\n".join(["Plan · 1/3", step, step, step])
+    assert len(checklist) > PROMPT_PROGRESS_PLAN_MAX_CHARS
+
+    queue.note(job, checklist, kind="plan")
+
+    lines = job.view()["progress"][0]["text"].splitlines()
+    assert lines[0] == "Plan · 1/3"
+    assert lines[-1] == PROMPT_PROGRESS_PLAN_OMITTED
+    assert lines[1:-1]
+    assert all(line == step for line in lines[1:-1])
+    assert len(lines) < 5
 
 
 def test_progress_keeps_a_three_row_status() -> None:

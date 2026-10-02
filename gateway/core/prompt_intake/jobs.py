@@ -11,11 +11,43 @@ from enum import StrEnum
 from typing import Any
 
 from config.constants.gateway import (
+    PROMPT_PROGRESS_KIND_NOTE,
+    PROMPT_PROGRESS_KIND_PLAN,
+    PROMPT_PROGRESS_KIND_PLAN_DONE,
+    PROMPT_PROGRESS_KINDS,
     PROMPT_PROGRESS_LINE_MAX_CHARS,
     PROMPT_PROGRESS_MAX_LINES,
+    PROMPT_PROGRESS_PLAN_MAX_CHARS,
+    PROMPT_PROGRESS_PLAN_OMITTED,
     PROMPT_QUEUE_MAX,
     PROMPT_RESULT_RETENTION_SECONDS,
 )
+
+_PLAN_PROGRESS_KINDS = frozenset({PROMPT_PROGRESS_KIND_PLAN, PROMPT_PROGRESS_KIND_PLAN_DONE})
+
+
+def _bounded_progress_text(text: str, *, kind: str) -> str:
+    """Cap one progress update without cutting a checklist step in half."""
+    stripped = text.strip()
+    if kind not in _PLAN_PROGRESS_KINDS:
+        return stripped[:PROMPT_PROGRESS_LINE_MAX_CHARS]
+    if len(stripped) <= PROMPT_PROGRESS_PLAN_MAX_CHARS:
+        return stripped
+    marker = PROMPT_PROGRESS_PLAN_OMITTED
+    budget = PROMPT_PROGRESS_PLAN_MAX_CHARS - len(marker) - 1
+    kept: list[str] = []
+    used = 0
+    for raw in stripped.splitlines():
+        line = raw.rstrip()
+        extra = len(line) + (1 if kept else 0)
+        if used + extra > budget:
+            break
+        kept.append(line)
+        used += extra
+    if not kept:
+        return marker
+    kept.append(marker)
+    return "\n".join(kept)
 
 
 class AnswerRefused(Exception):
@@ -64,8 +96,9 @@ class PromptJob:
     parent_id: str = ""
     #: For a prompt that asked: the follow-up job carrying the answer.
     answered_by: str = ""
-    #: Newest progress lines as ``(index, text)``; the index lets a poller print each once.
-    progress: deque[tuple[int, str]] = field(
+    #: Newest progress lines as ``(index, text, kind)``. The index lets a poller
+    #: print each once; ``kind`` tells the shell how to paint the line.
+    progress: deque[tuple[int, str, str]] = field(
         default_factory=lambda: deque(maxlen=PROMPT_PROGRESS_MAX_LINES), repr=False
     )
     progress_count: int = 0
@@ -95,7 +128,8 @@ class PromptJob:
                 record["failed_integrations"] = list(self.failed_integrations)
             if self.progress:
                 record["progress"] = [
-                    {"index": index, "text": text} for index, text in self.progress
+                    {"index": index, "text": text, "kind": kind}
+                    for index, text, kind in self.progress
                 ]
             return record
 
@@ -221,13 +255,26 @@ class PromptQueue:
             job, PromptState.FAILED, error_code=error_code, failed_integrations=failed_integrations
         )
 
-    def note(self, job: PromptJob, text: str) -> None:
-        """Append one progress line to the running job; older lines fall off the end."""
-        line = text.strip()[:PROMPT_PROGRESS_LINE_MAX_CHARS]
+    def note(self, job: PromptJob, text: str, *, kind: str = PROMPT_PROGRESS_KIND_NOTE) -> None:
+        """Append one progress line to the running job; older lines fall off the end.
+
+        An identical ``plan`` line already at the tail is not recorded again:
+        the shell replaces that checklist in place, so a repeat is noise.
+        """
+        if kind not in PROMPT_PROGRESS_KINDS:
+            kind = PROMPT_PROGRESS_KIND_NOTE
+        line = _bounded_progress_text(text, kind=kind)
         if not line:
             return
         with job._lock:
-            job.progress.append((job.progress_count, line))
+            if (
+                kind == PROMPT_PROGRESS_KIND_PLAN
+                and job.progress
+                and job.progress[-1][1] == line
+                and job.progress[-1][2] == kind
+            ):
+                return
+            job.progress.append((job.progress_count, line, kind))
             job.progress_count += 1
 
     def take_forgotten(self) -> list[PromptJob]:
