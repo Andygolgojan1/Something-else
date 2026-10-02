@@ -134,13 +134,16 @@ through `skill_view(name=..., reference=...)`; they are not automatic includes.
 
 The onboarding master's entry menu is not declared in its card. The loader
 (`catalog/demo_menu.py`) builds it in code: the title is
-`config.constants.skills.ONBOARDING_MENU_TITLE`, the options are the children's
-`getting_started` labels in `demo_order` followed by the shell's Skip option,
-and free text is disabled. The matching skill handoffs are generated from the
-same metadata. Only implemented workflows belong in the demo menu or discovery
-catalog. The generated menu must contain one to seven child choices plus Skip;
-otherwise the master is excluded with a diagnostic. A child cannot reuse the
-reserved Skip label. The host opens the menu on skill entry
+`config.constants.skills.ONBOARDING_MENU_TITLE` and free text is disabled.
+When the four onboarding children are present, the first menu is the outcome
+rows in `OUTCOME_MENU_OPTIONS` (analyze a repo, keep CI/CD healthy, open the
+shell). The automation row is not a skill; the shell opens
+`AUTOMATION_MENU_OPTIONS` and submits only that leaf label. Handoffs map those
+leaf labels to skill names. Any other child set still uses each child's
+`getting_started` label in `demo_order`, followed by the shell's Skip option.
+The child count must be one to seven or the master is excluded with a
+diagnostic. A child cannot reuse the reserved Skip label. The host opens the
+menu on skill entry
 (`tools/interactive_shell/actions/skill_entry.py`) through the real
 `ask_user_choice` executor and reports `queued`, `suppressed`, or
 `unavailable` under the `entry_menu` key of the `skill_view` result.

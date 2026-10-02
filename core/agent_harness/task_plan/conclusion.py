@@ -50,7 +50,7 @@ def demo_pick_stalled_on_skill_load(
 ) -> bool:
     """True when the onboarding menu's answer only loaded the chosen demo skill.
 
-    The answer to "Which demo would you like me to run?" is the go-ahead. A
+    The answer to "What would you like to do?" is the go-ahead. A
     turn that loads the chosen skill and then stops — no plan written, no
     step run, no menu queued — has stalled; the first demo did exactly that
     live. A hand-off between two workflow skills is not this: the next skill

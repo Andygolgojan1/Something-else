@@ -4,7 +4,7 @@ description: >-
   Sets up ongoing local monitoring of one repository's open pull requests,
   automatically editing, testing, and pushing fixes for failing GitHub Actions
   checks. Offers a disposable private-repository demonstration. Use for recurring PR repair or the local CI onboarding demo.
-getting_started: Set up an agent that improves CI/CD reliability over time
+getting_started: Run continuously on this machine (recommended)
 demo_order: 2
 metadata:
   owner: Vincent

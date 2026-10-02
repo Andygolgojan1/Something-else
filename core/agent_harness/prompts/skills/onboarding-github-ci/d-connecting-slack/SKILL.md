@@ -5,7 +5,7 @@ description: >-
   with cli_exec; if Slack is missing, queues `/integrations setup slack` via slash_invoke (the wizard
   needs a full terminal). Use for the startup demo option "Connect OpenSRE to Slack and hand off DevOps
   chores for your team". Never post, reply, or send to Slack in this flow. Multi-step; load before acting.
-getting_started: Connect OpenSRE to Slack and hand off DevOps chores for your team
+getting_started: Connect Slack
 demo_order: 4
 metadata:
   owner: Vincent
