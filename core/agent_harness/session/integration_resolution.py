@@ -20,6 +20,11 @@ from infrastructure.harness_providers import (
     IntegrationResolutionResult,
     integration_sources_stamp,
     resolve_integrations,
+    select_github_connection,
+)
+from infrastructure.harness_providers.integration_selection import (
+    bound_github_connection,
+    current_github_connection_id,
 )
 
 if TYPE_CHECKING:
@@ -93,19 +98,34 @@ def resolve_and_cache_integrations(session: SessionState) -> dict[str, Any]:
     """
     stamp = integration_sources_stamp()
     state = getattr(session, "integrations", None)
+    context = getattr(session, "accumulated_context", None)
+    if (
+        isinstance(state, IntegrationState)
+        and state.github_connection_id
+        and isinstance(context, dict)
+    ):
+        context["_github_connection_id"] = state.github_connection_id
     cached = session.resolved_integrations_cache
     if cached and _built_from_another_store(state, stamp):
         cached = None
         session.resolved_integrations_cache = None
     if _has_usable_cache(cached):
-        return dict(cached or {})
+        if not cached:
+            return {}
+        return select_github_connection(cached or {}, getattr(state, "github_connection_id", None))
 
-    resolved = resolve_integrations()
+    resolved = _resolve_for_connection(getattr(state, "github_connection_id", None))
     if resolved:
         session.resolved_integrations_cache = merge_resolved_integrations(cached, resolved)
         if isinstance(state, IntegrationState):
             state.store_stamp = stamp
     return dict(session.resolved_integrations_cache or {})
+
+
+def _resolve_for_connection(connection_id: str | None) -> dict[str, Any]:
+    with bound_github_connection(connection_id):
+        resolved = resolve_integrations()
+    return select_github_connection(resolved, connection_id)
 
 
 def _built_from_another_store(state: Any, stamp: tuple[int, int]) -> bool:
@@ -123,6 +143,8 @@ def _built_from_another_store(state: Any, stamp: tuple[int, int]) -> bool:
 class IntegrationState:
     """A session's integration-resolution state and the logic that warms it."""
 
+    github_connection_id: str | None = field(default_factory=current_github_connection_id)
+    """Explicit host-selected connection; None means the workspace default."""
     configured: tuple[str, ...] = ()
     """Session-scoped configured integration names for planning-time capability checks."""
     configured_known: bool = False
@@ -185,7 +207,7 @@ class IntegrationState:
         # older stamp and is re-resolved on the next turn.
         stamp = integration_sources_stamp()
         try:
-            resolved = resolve_integrations()
+            resolved = _resolve_for_connection(self.github_connection_id)
         except Exception:
             # Best-effort warmup: leave cache unset so later turns can retry.
             return
@@ -212,7 +234,13 @@ class IntegrationState:
         """
         cached = self.resolved_cache
         if _has_usable_cache(cached):
-            return IntegrationResolutionResult(resolved_integrations=dict(cached or {}))
+            if not cached:
+                return IntegrationResolutionResult(resolved_integrations={})
+            return IntegrationResolutionResult(
+                resolved_integrations=select_github_connection(
+                    cached or {}, self.github_connection_id
+                )
+            )
         self.warm()
         return IntegrationResolutionResult(resolved_integrations=dict(self.resolved_cache or {}))
 

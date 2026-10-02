@@ -110,10 +110,19 @@ def _default_integration_setup_command(service_id: str) -> str:
     return f"integrations setup {service_id}"
 
 
+def _default_select_connection(
+    resolved: dict[str, Any], _connection_id: str | None
+) -> dict[str, Any]:
+    return resolved
+
+
 @dataclass(frozen=True)
 class IntegrationResolutionAdapters:
     """The load/merge/classify adapters, installed once by ``integrations``."""
 
+    select_github_connection: Callable[[dict[str, Any], str | None], dict[str, Any]] = (
+        _default_select_connection
+    )
     load_integrations: LoadIntegrationsFn = _default_load_integrations
     integration_store_path: IntegrationStorePathFn = _default_store_path
     load_env_integrations: LoadEnvIntegrationsFn = _default_load_env_integrations
@@ -209,6 +218,7 @@ class IntegrationResolutionRequest(BaseModel):
     resolved_integrations: dict[str, Any] | None = None
     auth_token: str = Field(default="", alias="_auth_token")
     org_id: str = ""
+    github_connection_id: str | None = None
 
     @field_validator("auth_token", "org_id", mode="before")
     @classmethod
@@ -233,10 +243,30 @@ def resolve_integrations(state: Mapping[str, Any] | None = None) -> dict[str, An
     return resolve_integrations_with_metadata(state).resolved_integrations
 
 
+def select_github_connection(resolved: dict[str, Any], connection_id: str | None) -> dict[str, Any]:
+    """Apply the connection choice to an already resolved integration snapshot."""
+    return _adapters().select_github_connection(resolved, connection_id)
+
+
 def resolve_integrations_with_metadata(
     state: Mapping[str, Any] | None = None,
 ) -> IntegrationResolutionResult:
+    from infrastructure.harness_providers.integration_selection import current_github_connection_id
+
     request = IntegrationResolutionRequest.model_validate(state or {})
+    result = _resolve_integrations_request(request)
+    connection_id = (
+        request.github_connection_id
+        if state and "github_connection_id" in state
+        else current_github_connection_id()
+    )
+    selected = select_github_connection(result.resolved_integrations, connection_id)
+    return result.model_copy(update={"resolved_integrations": selected})
+
+
+def _resolve_integrations_request(
+    request: IntegrationResolutionRequest,
+) -> IntegrationResolutionResult:
     existing = request.resolved_integrations
     if existing:
         return IntegrationResolutionResult(resolved_integrations=dict(existing))
@@ -436,5 +466,6 @@ __all__ = [
     "integration_sources_stamp",
     "resolve_integrations",
     "resolve_integrations_with_metadata",
+    "select_github_connection",
     "setupable_integration_services",
 ]
