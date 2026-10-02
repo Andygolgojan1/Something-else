@@ -14,7 +14,13 @@ from __future__ import annotations
 from rich.console import Console
 from rich.markup import escape
 
-from config.constants.skills import ONBOARDING_SKILL_NAME, SKIP_DEMO_OPTION
+from config.constants.skills import (
+    AUTOMATION_GROUP_OPTION,
+    AUTOMATION_MENU_OPTIONS,
+    AUTOMATION_MENU_TITLE,
+    ONBOARDING_SKILL_NAME,
+    SKIP_DEMO_OPTION,
+)
 from core.agent_harness.spi.handoff import (
     format_ask_user_answers,
     question_key,
@@ -43,7 +49,7 @@ from surfaces.shared.terminal.components.choice_menu import (
 )
 
 _CANCELLED = "Selection cancelled — type a reply instead."
-_DEMO_SKIPPED = "Demo skipped — type a request, or /demo to come back to it."
+_DEMO_SKIPPED = "Opened the shell — type a request, or /demo to come back to the menu."
 _DEMO_UNAVAILABLE = "Guided demo selection is unavailable here — request a task directly."
 
 
@@ -175,6 +181,17 @@ def _cmd_choose(session: Session, console: Console, args: list[str]) -> bool:
         on_custom_answer=mark_custom_answer,
         on_answer=remember_single_answer,
     )
+    if picked_one == AUTOMATION_GROUP_OPTION and skill_name == ONBOARDING_SKILL_NAME:
+        # The group row is a shell decision. The model receives only the leaf.
+        picked_one = repl_choose_one(
+            title=AUTOMATION_MENU_TITLE,
+            choices=[(option, option) for option in AUTOMATION_MENU_OPTIONS],
+            custom_label=None,
+            multi_select=False,
+            header="Ask User",
+            letter_keys=True,
+            note="",
+        )
     capture_onboarding_choice(session.active_skill, picked_one, custom=custom_answer)
     if picked_one is None:
         capture_ask_user_prompt_dismissed(
@@ -211,8 +228,9 @@ def _cmd_choose(session: Session, console: Console, args: list[str]) -> bool:
         session.terminal.awaiting_handoff_answer = False
         session.terminal.set_auto_command(command)
         return True
-    _remember_answered(session, items[0].title)
-    render_choice_selection(console, items[0].title, picked_one)
+    shown_title = AUTOMATION_MENU_TITLE if picked_one in AUTOMATION_MENU_OPTIONS else items[0].title
+    _remember_answered(session, items[0].title, shown_title)
+    render_choice_selection(console, shown_title, picked_one)
     # The answer travels with its question, as the batched wizard's does: a bare
     # label such as "owner/repo (757 commits, CI configured)" reads to the
     # planner like a fresh request and gets re-asked or re-routed.

@@ -8,7 +8,17 @@ from pathlib import Path
 import pytest
 
 import core.agent_harness.prompts.skills as skills
-from config.constants.skills import ONBOARDING_MENU_TITLE, ONBOARDING_SKILL_NAME, SKIP_DEMO_OPTION
+from config.constants.skills import (
+    ANALYZE_REPO_OPTION,
+    AUTOMATION_GROUP_OPTION,
+    CLOUD_REPAIR_OPTION,
+    LOCAL_REPAIR_OPTION,
+    ONBOARDING_MENU_TITLE,
+    ONBOARDING_SKILL_NAME,
+    OUTCOME_MENU_OPTIONS,
+    SKIP_DEMO_OPTION,
+    SLACK_OPTION,
+)
 from core.agent_harness.prompts.action import build_action_system_prompt
 from core.agent_harness.prompts.action.assemble import build_action_system_prompt_envelope
 from core.agent_harness.prompts.getting_started import (
@@ -44,20 +54,36 @@ def test_master_menu_matches_four_unique_children_and_preserves_specialists() ->
     ]
     assert [s.demo_order for s in children] == [1, 2, 3, 4]
     assert GETTING_STARTED_OPTIONS == (
-        "Explore a repo and analyze its CI/CD performance (recommended)",
-        "Set up an agent that improves CI/CD reliability over time",
-        "Run CI/CD repairs remotely",
-        "Connect OpenSRE to Slack and hand off DevOps chores for your team",
+        ANALYZE_REPO_OPTION,
+        LOCAL_REPAIR_OPTION,
+        CLOUD_REPAIR_OPTION,
+        SLACK_OPTION,
     )
     master = skills.load_skill_body(ONBOARDING_SKILL_NAME)
     master_skill = next(s for s in skills.list_action_skills() if s.name == ONBOARDING_SKILL_NAME)
     # The menu is catalog data the host opens on entry, not frontmatter or prose
-    # the model replays; its options are the children's own labels so the two
-    # cannot drift apart.
+    # the model replays. The shipped children use the outcome rows; handoffs
+    # map the leaf labels to skill names.
     menu = master_skill.entry_menu
     assert menu is not None
-    assert menu.title == ONBOARDING_MENU_TITLE == "Which demo would you like me to run?"
-    assert menu.options == (*GETTING_STARTED_OPTIONS, SKIP_DEMO_OPTION)
+    assert menu.title == ONBOARDING_MENU_TITLE == "What would you like to do?"
+    assert (
+        menu.options
+        == OUTCOME_MENU_OPTIONS
+        == (
+            ANALYZE_REPO_OPTION,
+            AUTOMATION_GROUP_OPTION,
+            SKIP_DEMO_OPTION,
+        )
+    )
+    for label, name in (
+        (ANALYZE_REPO_OPTION, "analyzing-github-ci-performance"),
+        (LOCAL_REPAIR_OPTION, "scheduling-github-ci-repairs"),
+        (CLOUD_REPAIR_OPTION, "delegating-github-ci-repairs"),
+        (SLACK_OPTION, "connecting-slack"),
+    ):
+        assert f'- "{label}": call `skill_view(name="{name}")`.' in master
+    assert AUTOMATION_GROUP_OPTION not in master
     assert "Call `ask_user_choice`" not in master
     for skill in children:
         assert f'skill_view(name="{skill.name}")' in master
@@ -154,7 +180,7 @@ def test_capability_answers_and_direct_requests_do_not_require_onboarding() -> N
     assert "stop onboarding without a replacement text menu" in prompt
     assert "Do not invent a separate getting-started menu" in prompt
     assert "are NOT a skill_view match" not in prompt
-    assert "Which demo would you like me to run?" not in load_getting_started_block()
+    assert "What would you like to do?" not in load_getting_started_block()
     assert "ask_user_choice menu: available" in prompt
 
 

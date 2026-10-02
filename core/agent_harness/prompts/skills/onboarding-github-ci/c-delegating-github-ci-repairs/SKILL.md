@@ -3,7 +3,7 @@ name: delegating-github-ci-repairs
 description: >-
   In the interactive shell, prepare the hosted gateway and delegate a bounded
   GitHub PR repair or remote demo. Use for remote CI repair onboarding.
-getting_started: Run CI/CD repairs remotely
+getting_started: Run one repair in OpenSRE Cloud
 demo_order: 3
 metadata:
   owner: Vincent
@@ -149,8 +149,8 @@ Show the final repair plan titled `Remote Repair Plan`. Put the probe's findings
 After a successful repair report, one `ask_user_choice` with the title
 `Hand off the next CICD fix?`, `allow_custom` false, and these options:
 
-- Guard failing PRs on one of your repos
 - Fix a failing PR from Slack by tagging @OpenSRE
+- Guard failing PRs on one of your repos
 - Not now
 
 Complete when the `ask_user_choice` call for this menu has returned in

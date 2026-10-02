@@ -17,10 +17,7 @@ PRODUCT_DISPLAY_NAME: Final[str] = "OpenSRE"
 
 #: Sign-in / welcome screen copy, shown when the shell requires login.
 WELCOME_TITLE: Final[str] = "Welcome to OpenSRE CLI"
-WELCOME_DESCRIPTION: Final[str] = (
-    "OpenSRE is an AI-powered DevOps agent that diagnoses, fixes and "
-    "optimizes your production software."
-)
+WELCOME_DESCRIPTION: Final[str] = "OpenSRE finds, fixes, and prevents CI/CD failures."
 SIGN_IN_PROMPT: Final[str] = "Sign in or create an OpenSRE account to use the interactive shell."
 
 #: Release maturity, as users see it. Keep in step with the README badge.

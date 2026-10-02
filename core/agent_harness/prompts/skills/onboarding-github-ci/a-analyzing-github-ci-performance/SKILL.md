@@ -4,7 +4,7 @@ description: >-
   Computes a CI/CD metrics table from raw GitHub Actions records for one repository over the last 30 days,
   including failure rates and developer waiting time. Use for historical CI performance questions or the
   first-experience repository demo. For currently failing checks, use reporting-github-ci-failures.
-getting_started: Explore a repo and analyze its CI/CD performance (recommended)
+getting_started: Analyze & improve a repo (recommended)
 demo_order: 1
 metadata:
   owner: Vincent

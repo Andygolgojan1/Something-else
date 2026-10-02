@@ -28,7 +28,7 @@ def test_screen_shows_welcome_box_and_sign_in_prompt() -> None:
     # Assert: product copy is present; the banner logo/status renders alongside it.
     out = buf.getvalue()
     assert WELCOME_TITLE in out
-    assert WELCOME_DESCRIPTION.split(" that ")[0] in out  # description body reached the screen
+    assert WELCOME_DESCRIPTION in out
     assert SIGN_IN_PROMPT in out
     assert "Skills" in out and "CI/CD fixes" in out
 

@@ -13,7 +13,17 @@ import surfaces.interactive_shell.runtime.slash_adapter as slash_adapter
 import surfaces.interactive_shell.runtime.startup.demo_picker as demo_picker
 import surfaces.interactive_shell.runtime.startup.onboarding_telemetry as onboarding_telemetry
 import tools.system.workspace_git_scan.tool as scan_tool
-from config.constants.skills import ONBOARDING_SKILL_NAME, SKIP_DEMO_OPTION
+from config.constants.skills import (
+    ANALYZE_REPO_OPTION,
+    AUTOMATION_GROUP_OPTION,
+    AUTOMATION_MENU_OPTIONS,
+    AUTOMATION_MENU_TITLE,
+    LOCAL_REPAIR_OPTION,
+    ONBOARDING_MENU_TITLE,
+    ONBOARDING_SKILL_NAME,
+    OUTCOME_MENU_OPTIONS,
+    SKIP_DEMO_OPTION,
+)
 from core.agent_harness.prompts.action.assemble import build_action_system_prompt_envelope
 from core.agent_harness.prompts.getting_started import GETTING_STARTED_OPTIONS
 from core.agent_harness.session.pending_choice import (
@@ -30,7 +40,7 @@ from tests.core.agent.orchestration.action_execution_test_harness import (
 )
 from tools.system.workspace_git_scan.scan import WorkspaceSnapshot
 
-_TITLE = "Which demo would you like me to run?"
+_TITLE = ONBOARDING_MENU_TITLE
 _REPOSITORY_TITLE = "Which repository should I analyze?"
 _REPOSITORY = "acme/one"
 _REPOSITORY_OPTIONS = (_REPOSITORY, "Tracer-Cloud/opensre")
@@ -156,7 +166,7 @@ def test_boot_paints_only_the_skill_menu_then_selected_child_runs_through_real_t
 
     def pick(**kwargs: Any) -> str:
         picker_calls.append(kwargs)
-        return _REPOSITORY if kwargs["title"] == _REPOSITORY_TITLE else GETTING_STARTED_OPTIONS[0]
+        return _REPOSITORY if kwargs["title"] == _REPOSITORY_TITLE else ANALYZE_REPO_OPTION
 
     monkeypatch.setattr(scan_tool, "scan_workspace", scan)
     monkeypatch.setattr(choice_prompt, "repl_choose_one", pick)
@@ -169,7 +179,7 @@ def test_boot_paints_only_the_skill_menu_then_selected_child_runs_through_real_t
     assert (pending.title, pending.note, pending.options) == (
         _TITLE,
         _NOTE,
-        (*GETTING_STARTED_OPTIONS, SKIP_DEMO_OPTION),
+        OUTCOME_MENU_OPTIONS,
     )
     assert session.terminal.pending_prompt_default == "/choose"
     assert session.terminal.awaiting_handoff_answer
@@ -194,10 +204,7 @@ def test_boot_paints_only_the_skill_menu_then_selected_child_runs_through_real_t
     assert callable(on_answer)
     assert picker_calls[0] == {
         "title": _TITLE,
-        "choices": [
-            *((option, option) for option in GETTING_STARTED_OPTIONS),
-            (SKIP_DEMO_OPTION, SKIP_DEMO_OPTION),
-        ],
+        "choices": [(option, option) for option in OUTCOME_MENU_OPTIONS],
         "custom_label": None,
         "multi_select": False,
         "header": "Ask User",
@@ -206,7 +213,7 @@ def test_boot_paints_only_the_skill_menu_then_selected_child_runs_through_real_t
     }
     assert session.active_skill == ONBOARDING_SKILL_NAME
     answer = _take_prompt(session)
-    assert answer == format_ask_user_answers(pending.items(), (GETTING_STARTED_OPTIONS[0],))
+    assert answer == format_ask_user_answers(pending.items(), (ANALYZE_REPO_OPTION,))
     envelope = build_action_system_prompt_envelope(
         TurnSnapshot.from_session(answer, session, surface="interactive_shell")
     )
@@ -360,6 +367,57 @@ def test_typed_option_label_keeps_its_custom_source_through_the_picker(
     assert onboarding_outcomes == [("custom", True) if typed else ("ci_analytics", False)]
 
 
+def test_automation_group_submits_the_follow_up_leaf_not_the_group(
+    monkeypatch: pytest.MonkeyPatch,
+    onboarding_outcomes: list[tuple[str, bool | None]],
+) -> None:
+    """The automation row opens a second picker; the model receives only the leaf."""
+    _offerable(monkeypatch)
+    session = Session()
+    session.active_skill = ONBOARDING_SKILL_NAME
+    pending = PendingUserChoice(title=_TITLE, options=OUTCOME_MENU_OPTIONS)
+    session.pending_user_choice = pending
+    calls: list[dict[str, Any]] = []
+
+    def pick(**kwargs: Any) -> str:
+        calls.append(kwargs)
+        if kwargs["title"] == AUTOMATION_MENU_TITLE:
+            return LOCAL_REPAIR_OPTION
+        return AUTOMATION_GROUP_OPTION
+
+    monkeypatch.setattr(choice_prompt, "repl_choose_one", pick)
+    choice_prompt._cmd_choose(session, Console(file=io.StringIO()), [])
+
+    assert [call["title"] for call in calls] == [_TITLE, AUTOMATION_MENU_TITLE]
+    assert calls[1]["choices"] == [(option, option) for option in AUTOMATION_MENU_OPTIONS]
+    answer = _take_prompt(session)
+    assert answer == format_ask_user_answers(pending.items(), (LOCAL_REPAIR_OPTION,))
+    assert AUTOMATION_GROUP_OPTION not in answer
+    assert onboarding_outcomes == [("ci_agent", False)]
+
+
+def test_automation_follow_up_escape_cancels_without_an_answer(
+    monkeypatch: pytest.MonkeyPatch,
+    onboarding_outcomes: list[tuple[str, bool | None]],
+) -> None:
+    _offerable(monkeypatch)
+    session = Session()
+    session.active_skill = ONBOARDING_SKILL_NAME
+    session.pending_user_choice = PendingUserChoice(title=_TITLE, options=OUTCOME_MENU_OPTIONS)
+
+    def pick(**kwargs: Any) -> str | None:
+        if kwargs["title"] == AUTOMATION_MENU_TITLE:
+            return None
+        return AUTOMATION_GROUP_OPTION
+
+    monkeypatch.setattr(choice_prompt, "repl_choose_one", pick)
+    choice_prompt._cmd_choose(session, Console(file=io.StringIO()), [])
+
+    assert session.active_skill is None
+    assert session.terminal.pending_prompt_default in (None, "")
+    assert onboarding_outcomes == [("skipped", None)]
+
+
 def test_startup_and_demo_respect_tty_and_pending_input(monkeypatch: pytest.MonkeyPatch) -> None:
     _offerable(monkeypatch)
     session = Session()
@@ -431,7 +489,7 @@ def test_onboarding_losing_its_terminal_ends_without_a_text_menu(
     choice_prompt._cmd_choose(session, console, [])
 
     assert "request a task directly" in output.getvalue()
-    assert all(option not in output.getvalue() for option in GETTING_STARTED_OPTIONS)
+    assert all(option not in output.getvalue() for option in OUTCOME_MENU_OPTIONS)
     assert session.active_skill is None
     assert session.pending_user_choice is None
     assert not session.terminal.awaiting_handoff_answer
