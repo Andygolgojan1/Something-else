@@ -104,7 +104,7 @@ the total is best-effort and can decrease after restarting if a save failed.
 | `/verbose` | Toggle verbose logging |
 | `/clear` | Clear the screen and re-render the banner |
 | `/compact` | Summarize older context into a replayable compaction entry |
-| `/sessions` | List recent REPL sessions on disk |
+| `/sessions` | Browse recent sessions; select one with ↑/↓ and Enter in a terminal |
 | `/resume <id>` | Restore a past session's conversation context |
 | `/resume <id>:<entry>` | Restore a specific session branch point |
 | `/new` | Start a new session file while keeping LLM context |
@@ -195,7 +195,7 @@ Bare invocation opens a picker or submenu:
 | `/choose` | Reopen the selection menu the agent queued |
 | `/trust`, `/verbose` | on / off |
 | `/history` | show / clear / off / on / retention |
-| `/resume` | Numbered list of recent sessions |
+| `/resume` | Arrow-key picker of recent conversations |
 
 `/model` keeps its menu running: picking `show` prints the current models and
 hands you back to the menu, so leave it with **done** or Esc.
@@ -410,28 +410,15 @@ If there are not enough messages to compact, the command reports nothing to comp
 
 <Accordion title="/sessions">
 
-List up to **20** recent sessions stored on disk, newest first:
+Browse up to **20** recent sessions stored on disk, newest first:
 
 ```text
 /sessions
 ```
 
-```text
-  Recent sessions
+In a terminal, use **↑/↓** to highlight a session and **Enter** to resume it. **Esc** closes the picker. Rows show relative times, and the status line shows the selected session's ID, start time, duration, and turn count. The current session is marked; the most recent previous session is highlighted by default when one exists.
 
-   #  Session ID  Name                           Started            Duration  Turns
-   ───────────────────────────────────────────────────────────────────────────────
-   1  3f8a1c2d    (current)                      Jun 17 10:00       42m       8
-   2  9b2e4f7a    why is CPU spiking on prod-api Jun 16 14:30       1h 5m    15
-```
-
-| Column | Meaning |
-| --- | --- |
-| `Session ID` | First 8 characters of the UUID (enough for `/resume`) |
-| `Name` | Derived from the first user message or resumed session label |
-| `Turns` | Total chat + slash + alert turns recorded |
-
-The current row updates **duration** live. Sessions with no name show `(current)` or `↩ &lt;resumed-from&gt;` when applicable.
+When output is piped, `/sessions` prints a table instead. Use `/resume <id>` with the displayed 8-character ID. The current session's duration updates live.
 
 </Accordion>
 
@@ -451,7 +438,7 @@ Restore LLM conversation context and accumulated infra context from a previous s
 | ID prefix | Match session UUID by prefix (must be unique) |
 | ID + entry prefix | Replay the branch ending at the matching entry ID prefix |
 | Name substring | Match when ≥3 characters and exactly one session matches (e.g. `/resume redis`) |
-| Bare `/resume` | Interactive numbered picker of recent sessions (TTY) |
+| Bare `/resume` | Arrow-key picker of recent conversations (TTY) |
 
 **Current session:** If the ID prefix matches the session you are already in, `/resume` is a no-op — OpenSRE prints a hint to pick a previous session from `/sessions`.
 

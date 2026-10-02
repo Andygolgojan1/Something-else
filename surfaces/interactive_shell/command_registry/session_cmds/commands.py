@@ -10,7 +10,10 @@ from surfaces.interactive_shell.command_registry.session_cmds.lifecycle import (
     _cmd_rename,
     _validate_rename_args,
 )
-from surfaces.interactive_shell.command_registry.session_cmds.list import _cmd_sessions
+from surfaces.interactive_shell.command_registry.session_cmds.list import (
+    _cmd_sessions,
+    _validate_sessions_args,
+)
 from surfaces.interactive_shell.command_registry.session_cmds.resume import (
     _cmd_resume,
 )
@@ -20,9 +23,10 @@ COMMANDS: list[SlashCommand] = [
     SlashCommand("/clear", "Clear the screen and re-render the banner.", _cmd_clear),
     SlashCommand(
         "/sessions",
-        "List recent REPL sessions.",
+        "Browse recent sessions and resume one with Enter.",
         _cmd_sessions,
         usage=("/sessions",),
+        validate_args=_validate_sessions_args,
     ),
     SlashCommand(
         "/resume",

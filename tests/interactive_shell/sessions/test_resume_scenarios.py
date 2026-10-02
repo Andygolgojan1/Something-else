@@ -255,7 +255,12 @@ class TestResumeScenarioMatrix:
         assert saved["accumulated_context"] == context
         assert sum(t["text"].startswith("/rename") for t in _read_turns(path)) == 1
         list_console, output = _capture()
-        dispatch_slash("/sessions", session, list_console)
+        list_console.width = 120
+        with patch(
+            "surfaces.shared.terminal.components.rendering.shutil.get_terminal_size",
+            return_value=os.terminal_size((120, 24)),
+        ):
+            dispatch_slash("/sessions", session, list_console)
         assert name in output.getvalue()
 
         resumed = Session()
@@ -469,6 +474,56 @@ class TestResumeScenarioMatrix:
 
         assert session.session_id == current_id
         assert "no conversation to resume" in buf.getvalue()
+
+    def test_sessions_picker_resumes_a_command_only_session(
+        self,
+        isolated_sessions: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A listed session with prior slash activity can be continued with Enter."""
+        from surfaces.interactive_shell.command_registry.session_cmds import list as list_command
+
+        target_id = "abab5555-6666-7777-8888-999900001111"
+        (isolated_sessions / f"{target_id}.jsonl").write_text(
+            "\n".join(
+                json.dumps(record)
+                for record in (
+                    {
+                        "type": "session",
+                        "version": 2,
+                        "id": target_id,
+                        "created_at": "2026-05-29T10:00:00+00:00",
+                        "cwd": "",
+                    },
+                    {
+                        "id": "entry1",
+                        "parent_id": None,
+                        "timestamp": "2026-05-29T10:00:01+00:00",
+                        "type": "custom_message",
+                        "custom_type": "turn_stub",
+                        "kind": "slash",
+                        "text": "/choose",
+                    },
+                )
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        session = Session()
+        current_id = session.session_id
+        _open_current(session)
+        console, buf = _capture()
+        monkeypatch.setattr(list_command, "repl_tty_interactive", lambda: True)
+        monkeypatch.setattr(list_command, "choose_recent_session", lambda _items: target_id)
+
+        dispatch_slash("/sessions", session, console)
+
+        assert session.session_id == target_id
+        assert "prior turns restored" in buf.getvalue()
+        target_turns = _read_turns(isolated_sessions / f"{target_id}.jsonl")
+        assert any(turn["text"] == f"/sessions {target_id[:8]}" for turn in target_turns)
+        source_turns = _read_turns(isolated_sessions / f"{current_id}.jsonl")
+        assert not any(turn["text"] == "/sessions" for turn in source_turns)
 
     def test_scenario_chain_resume_two_targets(
         self,
