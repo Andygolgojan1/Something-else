@@ -142,22 +142,19 @@ Complete when the assistant reply containing the table has been shown.
 
 ### 6. Offer the next step
 
-Call `ask_user_choice` with the title
-`What would you like to do next?` and these options:
+Call `ask_user_choice` with the title `See a failing check get fixed?`, `allow_custom` false, and this note: `A private demo repository, so the one in the report stays untouched. You watch one check go from red to green.`
 
-- Schedule local loops
-- Slack setup
-- Finish
+Options:
+- Fix one here, in the next few minutes
+- Fix one in the cloud, then close this terminal
+- Stop at the report
 
-Complete when the `ask_user_choice` call for this menu has returned in
-this turn. The user's answer arrives in the next turn. Each branch except
-`Finish` is owned by a sibling skill: load it with `skill_view` and follow
-its plan; do not reimplement its steps here.
+Complete when the `ask_user_choice` call for this menu has returned in this turn. The user's answer arrives in the next turn. Each branch except `Stop at the report` is owned by a sibling skill: load it with `skill_view` and follow its plan; do not reimplement its steps here.
 
-- **Schedule local loops:** call `skill_view(name="scheduling-github-ci-repairs")`
+- **Fix one here, in the next few minutes:** call `skill_view(name="scheduling-github-ci-repairs")`
   and follow that skill. The repository is already chosen and analyzed in
   this session, so its plan omits the scan and repository-pick steps and
   its analyze step reuses today's saved report.
-- **Slack setup:** call `skill_view(name="connecting-slack")` and follow that
-  skill.
-- **Finish:** acknowledge in one line and conclude.
+- **Fix one in the cloud, then close this terminal:** call `skill_view(name="delegating-github-ci-repairs")`
+  and follow that skill.
+- **Stop at the report:** acknowledge in one line and conclude.
