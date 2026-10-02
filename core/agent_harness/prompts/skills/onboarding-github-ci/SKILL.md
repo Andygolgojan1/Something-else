@@ -57,3 +57,5 @@ to this master menu. Escape cancels onboarding; wait for a fresh user request.
 
 An explicit `/demo` starts the selected workflow with the new request. Let its
 tool resolve an existing active run; completed results do not count as a new run.
+
+When the picker is unavailable, the text fallback must offer the two outcomes first, then the three automation choices, instead of a flat list of four demos. Bump last_changed_by, last_changed_at, and version on each card in that same edit

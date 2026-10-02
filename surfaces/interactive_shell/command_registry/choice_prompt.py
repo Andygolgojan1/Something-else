@@ -40,7 +40,7 @@ from surfaces.interactive_shell.runtime.startup.onboarding_telemetry import (
     capture_onboarding_choice,
 )
 from surfaces.interactive_shell.ui.ask_user import CUSTOM_OPTION, repl_ask_user
-from surfaces.interactive_shell.ui.handoff_questions import render_choice_selection
+from surfaces.interactive_shell.ui.handoff_questions import render_choice_selections
 from surfaces.interactive_shell.ui.prompt_visibility import clear_live_prompt_paint
 from surfaces.shared.terminal.components.choice_menu import (
     print_valid_choice_list,
@@ -181,8 +181,11 @@ def _cmd_choose(session: Session, console: Console, args: list[str]) -> bool:
         on_custom_answer=mark_custom_answer,
         on_answer=remember_single_answer,
     )
+    opening_answer: str | None = None
     if picked_one == AUTOMATION_GROUP_OPTION and skill_name == ONBOARDING_SKILL_NAME:
-        # The group row is a shell decision. The model receives only the leaf.
+        # The group row opens a follow-up. The model receives only the leaf;
+        # the transcript still records both questions the user answered.
+        opening_answer = picked_one
         picked_one = repl_choose_one(
             title=AUTOMATION_MENU_TITLE,
             choices=[(option, option) for option in AUTOMATION_MENU_OPTIONS],
@@ -230,7 +233,10 @@ def _cmd_choose(session: Session, console: Console, args: list[str]) -> bool:
         return True
     shown_title = AUTOMATION_MENU_TITLE if picked_one in AUTOMATION_MENU_OPTIONS else items[0].title
     _remember_answered(session, items[0].title, shown_title)
-    render_choice_selection(console, shown_title, picked_one)
+    pairs = [(shown_title, picked_one)]
+    if opening_answer is not None and picked_one in AUTOMATION_MENU_OPTIONS:
+        pairs = [(items[0].title, opening_answer), (shown_title, picked_one)]
+    render_choice_selections(console, pairs)
     # The answer travels with its question, as the batched wizard's does: a bare
     # label such as "owner/repo (757 commits, CI configured)" reads to the
     # planner like a fresh request and gets re-asked or re-routed.

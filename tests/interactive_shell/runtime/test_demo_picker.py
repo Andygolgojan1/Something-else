@@ -371,7 +371,10 @@ def test_automation_group_submits_the_follow_up_leaf_not_the_group(
     monkeypatch: pytest.MonkeyPatch,
     onboarding_outcomes: list[tuple[str, bool | None]],
 ) -> None:
-    """The automation row opens a second picker; the model receives only the leaf."""
+    """The automation row opens a second picker.
+
+    The transcript records both questions. The model receives only the leaf.
+    """
     _offerable(monkeypatch)
     session = Session()
     session.active_skill = ONBOARDING_SKILL_NAME
@@ -386,7 +389,10 @@ def test_automation_group_submits_the_follow_up_leaf_not_the_group(
         return AUTOMATION_GROUP_OPTION
 
     monkeypatch.setattr(choice_prompt, "repl_choose_one", pick)
-    choice_prompt._cmd_choose(session, Console(file=io.StringIO()), [])
+    output = io.StringIO()
+    choice_prompt._cmd_choose(
+        session, Console(file=output, force_terminal=False, highlight=False, width=100), []
+    )
 
     assert [call["title"] for call in calls] == [_TITLE, AUTOMATION_MENU_TITLE]
     assert calls[1]["choices"] == [(option, option) for option in AUTOMATION_MENU_OPTIONS]
@@ -394,6 +400,17 @@ def test_automation_group_submits_the_follow_up_leaf_not_the_group(
     assert answer == format_ask_user_answers(pending.items(), (LOCAL_REPAIR_OPTION,))
     assert AUTOMATION_GROUP_OPTION not in answer
     assert onboarding_outcomes == [("ci_agent", False)]
+    # Both menus are erased, so the card is the only record of what was asked.
+    assert [line.rstrip() for line in output.getvalue().splitlines()] == [
+        "",
+        "Ask User",
+        "",
+        f"  1.  {_TITLE}",
+        f"      {AUTOMATION_GROUP_OPTION}",
+        "",
+        f"  2.  {AUTOMATION_MENU_TITLE}",
+        f"      {LOCAL_REPAIR_OPTION}",
+    ]
 
 
 def test_automation_follow_up_escape_cancels_without_an_answer(
