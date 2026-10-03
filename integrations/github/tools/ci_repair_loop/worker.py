@@ -57,12 +57,18 @@ class _CheckWait(TypedDict, total=False):
 
 
 def _demo_repository(run: RepairRun) -> bool:
-    """True for the seeded demo PR its tool just scheduled.
+    """True for a seeded demo PR that no one else has changed since it was scheduled.
 
-    ``run.fast_checks`` is set only by the seeded-demo tool, never from a repository
-    name. The demo holds one known workflow and one file the repair may change.
+    ``run.fast_checks`` is set only for a pull request this process seeded, never
+    from a repository name, and is cleared once another commit replaces the seeded
+    head. The demo holds one known workflow and one file the repair may change.
     """
     return run.fast_checks
+
+
+def _on_seeded_chain(run: RepairRun, head: str) -> bool:
+    """Whether ``head`` is the seeded demo's scheduled commit or one this run pushed."""
+    return not run.seeded_head or head == run.seeded_head or head in run.pushed_shas
 
 
 def _check_wait(run: RepairRun) -> _CheckWait:
@@ -147,6 +153,10 @@ def _repair(run: RepairRun, store: RepairStore, token: str) -> None:
             run.status, run.reason = RepairStatus.CANCELLED, "The PR was closed."
             return
         head = str(pr.get("headRefOid") or "")
+        if run.fast_checks and not _on_seeded_chain(run, head):
+            # Someone else replaced the seeded fixture: repair, and count, an ordinary PR.
+            run.fast_checks = False
+            store.save(run)
         rows = pr.get("statusCheckRollup") or []
         failed = any(check_failed(row, expected_skips=set()) for row in rows)
         if not failed:
