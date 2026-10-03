@@ -2,9 +2,11 @@
 
 from integrations.hosted_gateway.client import (
     ERR_ALREADY_ANSWERED,
+    ERR_ALREADY_SETTLED,
     ERR_GATEWAY_UNAVAILABLE,
     ERR_INSECURE_APP_URL,
     ERR_INVALID_RESPONSE,
+    ERR_NOT_OWNED,
     ERR_NOT_PROVISIONED,
     ERR_NOT_RUNNING,
     ERR_NOT_SIGNED_IN,
@@ -27,9 +29,11 @@ from integrations.hosted_gateway.client import (
 
 __all__ = [
     "ERR_ALREADY_ANSWERED",
+    "ERR_ALREADY_SETTLED",
     "ERR_GATEWAY_UNAVAILABLE",
     "ERR_INSECURE_APP_URL",
     "ERR_INVALID_RESPONSE",
+    "ERR_NOT_OWNED",
     "ERR_NOT_PROVISIONED",
     "ERR_NOT_RUNNING",
     "ERR_NOT_WAITING",

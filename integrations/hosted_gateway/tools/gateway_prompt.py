@@ -13,6 +13,7 @@ import uuid
 from http import HTTPStatus
 from typing import Any
 
+from config.constants.gateway import PROMPT_CONVERSATION_NEW
 from config.constants.github import GITHUB_TOKEN_CHECKLIST
 from config.constants.hosted_gateway import (
     HOSTED_GATEWAY_INTEGRATIONS_PATH,
@@ -83,6 +84,15 @@ _FAILURE_TEXT = {
     "interrupted": (
         "The hosted gateway restarted before it finished that prompt, so it did not complete. "
         "Send it again."
+    ),
+    "cancelled": "That prompt was cancelled before it finished.",
+    "unknown_conversation": (
+        "The hosted gateway has no such conversation for this user. Send the prompt without "
+        "a conversation, or with conversation=new."
+    ),
+    "conversation_waiting": (
+        "That conversation is waiting for the answer to its question. Answer the question "
+        "first, or send the prompt with conversation=new."
     ),
 }
 #: A follow-up the gateway could not use; it reopened the question on the original prompt.
@@ -165,8 +175,10 @@ _FAILED_INTEGRATION_NEXT_STEP = {
         "or a tool there needs approval, the result is needs_input and the question opens as "
         "a menu in this shell; after the user answers, call this tool again with the same "
         "prompt_id and their selection is sent. Use it to run or check work there, for "
-        "example whether a scheduled CI repair task is running. The OpenSRE app finds the "
-        "gateway from the signed-in account; no organization or gateway id is passed."
+        "example whether a scheduled CI repair task is running. A prompt continues the "
+        "user's own gateway conversation, one prompt at a time; conversation=new starts a "
+        "separate one that runs beside it. The OpenSRE app finds the gateway from the "
+        "signed-in account; no organization or gateway id is passed."
     ),
     use_cases=[
         "Ask the hosted gateway which scheduled tasks it runs and whether the CI repair loop is active",
@@ -215,6 +227,15 @@ _FAILED_INTEGRATION_NEXT_STEP = {
                     "that failure returned, so the gateway runs the prompt at most once."
                 ),
             },
+            "conversation": {
+                "type": "string",
+                "description": (
+                    "Leave empty to continue the user's own gateway conversation. 'new' "
+                    "starts a separate conversation that runs at the same time as the "
+                    "user's others; use it for an unrelated investigation. A "
+                    "conversation_id from an earlier result continues that conversation."
+                ),
+            },
         },
         "additionalProperties": False,
     },
@@ -225,6 +246,7 @@ _FAILED_INTEGRATION_NEXT_STEP = {
         "question": "What the gateway asked when the state is needs_input",
         "choice": "The question as menu data (title, note, questions with options) when needs_input",
         "failed_integrations": "Integrations whose tools failed on the gateway, e.g. github",
+        "conversation_id": "The conversation the prompt ran on; pass it as conversation to continue it",
         "cause_code": "The app's specific reason when a prompt was refused, empty otherwise",
         "response_text": "Plain-language result for the user",
         "instructions": "What to do next with a parked question or a failed integration; not for the user",
@@ -235,11 +257,17 @@ def ask_hosted_gateway(
     facts: dict[str, str] | None = None,
     prompt_id: str = "",
     request_id: str = "",
+    conversation: str = "",
     context: Any = None,
 ) -> dict[str, Any]:
     """Submit the prompt or continue an earlier one, then wait for the gateway to settle."""
     if not prompt.strip() and not prompt_id.strip():
         return _refusal("Give the hosted gateway a prompt, or a prompt id to read.")
+    conversation = conversation.strip()
+    if not _valid_conversation(conversation):
+        return _refusal(
+            "conversation must be empty, 'new', or a conversation_id from an earlier result."
+        )
     scope = _shell_scope(context)
     in_flight = ""
     # One id per logical submission, reused by a resend, so the gateway queues it once.
@@ -247,7 +275,13 @@ def ask_hosted_gateway(
     try:
         with HostedGatewayClient.from_account() as client:
             record, sent_at, skip_recorded = _submit_or_continue(
-                client, prompt.strip(), dict(facts or {}), prompt_id.strip(), scope, request_id
+                client,
+                prompt.strip(),
+                dict(facts or {}),
+                prompt_id.strip(),
+                scope,
+                request_id,
+                conversation,
             )
             in_flight = record.prompt_id
             relay = _ProgressRelay(context)
@@ -328,6 +362,7 @@ def _submit_or_continue(
     prompt_id: str,
     scope: ActionToolScope | None,
     request_id: str,
+    conversation: str = "",
 ) -> tuple[PromptRecord, float, bool]:
     """Send a new prompt, or read an earlier one and pass the user's answer on if they gave one.
 
@@ -339,7 +374,10 @@ def _submit_or_continue(
     """
     if not prompt_id:
         sent_at = time.monotonic()
-        return client.send_prompt(prompt, context=facts, request_id=request_id), sent_at, False
+        record = client.send_prompt(
+            prompt, context=facts, request_id=request_id, conversation=conversation
+        )
+        return record, sent_at, False
     fetched_at = time.monotonic()
     record = client.prompt_result(prompt_id)
     if record.state == "needs_input" and record.answered_by:
@@ -486,10 +524,21 @@ def _outcome(
         "question": record.question,
         "choice": _choice_data(record),
         "failed_integrations": list(record.failed_integrations),
+        "conversation_id": record.conversation_id,
         "cause_code": "",
         "response_text": text,
         "instructions": " ".join(instructions),
     }
+
+
+def _valid_conversation(conversation: str) -> bool:
+    """Empty, ``new``, or a conversation id in the canonical form the gateway hands out."""
+    if conversation in ("", PROMPT_CONVERSATION_NEW):
+        return True
+    try:
+        return str(uuid.UUID(conversation)) == conversation
+    except ValueError:
+        return False
 
 
 def _credential_was_refused(text: str) -> bool:

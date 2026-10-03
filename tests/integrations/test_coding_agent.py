@@ -224,6 +224,44 @@ def test_codex_backend_builds_workspace_write_argv(
 
 @patch(_POPEN)
 @patch(_GIT_RUN, side_effect=_git_run_side_effect)
+@patch("integrations.coding_agent.codex_backend._resolve_binary", return_value="/usr/bin/codex")
+def test_codex_waits_for_a_heavy_work_slot_and_reports_a_full_gate_as_a_failed_result(
+    _mock_resolve: MagicMock,
+    _mock_git: MagicMock,
+    mock_popen: MagicMock,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Several Codex processes at once OOM the gateway task; a full gate must not spawn one."""
+    # Arrange: both heavy-work slots are held and the wait is short.
+    from config.constants.turn_concurrency import OPENSRE_MAX_CONCURRENT_HEAVY_WORK_ENV
+    from infrastructure.process.turn_capacity import (
+        HEAVY_WORK_BUSY_MESSAGE,
+        process_heavy_work_gate,
+        reset_process_heavy_work_gate_for_tests,
+    )
+    from infrastructure.process.turn_capacity import heavy_work as heavy_work_module
+
+    monkeypatch.setenv(OPENSRE_MAX_CONCURRENT_HEAVY_WORK_ENV, "2")
+    monkeypatch.setattr(heavy_work_module, "HEAVY_WORK_WAIT_SECONDS", 0.01)
+    reset_process_heavy_work_gate_for_tests()
+    gate = process_heavy_work_gate()
+    assert gate.try_acquire() and gate.try_acquire()
+
+    try:
+        # Act
+        result = codex_backend.run("fix", workspace=str(tmp_path), model=None, timeout_sec=60)
+    finally:
+        reset_process_heavy_work_gate_for_tests()
+
+    # Assert: the tool's ordinary failed result, with fixed copy and nothing spawned.
+    assert result.success is False
+    assert result.error == HEAVY_WORK_BUSY_MESSAGE
+    mock_popen.assert_not_called()
+
+
+@patch(_POPEN)
+@patch(_GIT_RUN, side_effect=_git_run_side_effect)
 @patch("integrations.coding_agent.codex_backend._resolve_binary")
 def test_codex_backend_hands_the_host_sandbox_to_codex_only_when_configured(
     mock_resolve: MagicMock,

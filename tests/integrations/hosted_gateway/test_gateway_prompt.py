@@ -18,6 +18,7 @@ from core.agent_harness.tools.tool_context import ACTION_TOOL_CONTEXT_RESOURCE_K
 from core.tool import AgentToolContext
 from integrations.hosted_gateway import (
     ERR_ALREADY_ANSWERED,
+    ERR_ALREADY_SETTLED,
     ERR_GATEWAY_UNAVAILABLE,
     ERR_NOT_RUNNING,
     ERR_UNKNOWN_PROMPT,
@@ -30,6 +31,7 @@ from integrations.hosted_gateway import (
 )
 from integrations.hosted_gateway.tools import gateway_prompt
 from integrations.hosted_gateway.tools.gateway_prompt import ask_hosted_gateway
+from integrations.hosted_gateway.tools.gateway_prompt_cancel import cancel_hosted_gateway_prompt
 from tools.registry import clear_tool_registry_cache, get_registered_tool_map
 
 _TOKEN = "osre_pat_test_token_value"
@@ -62,6 +64,58 @@ def test_send_prompt_posts_the_prompt_and_context_with_the_token_only() -> None:
     assert request.headers["authorization"] == f"Bearer {_TOKEN}"
     assert "org" not in str(request.url) and "organization" not in request.content.decode()
     assert record == PromptRecord(prompt_id=_ID, state="queued")
+
+
+def test_a_conversation_is_sent_and_only_a_canonical_conversation_id_is_read_back() -> None:
+    # Arrange: the gateway hands back one usable id and one that could name another path
+    conversation_id = "0b6f2c1e-8d4a-4c55-9a77-2f1c3e5d7a90"
+    bodies: list[dict[str, Any]] = []
+    replies = iter([conversation_id, "../elsewhere"])
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return httpx.Response(
+            202, json={"prompt_id": _ID, "state": "queued", "conversation_id": next(replies)}
+        )
+
+    # Act
+    with _client(httpx.MockTransport(answer)) as client:
+        separate = client.send_prompt("audit", context={}, conversation="new")
+        unsafe = client.send_prompt("again", context={}, conversation=conversation_id)
+
+    # Assert
+    assert [body["conversation"] for body in bodies] == ["new", conversation_id]
+    assert separate.conversation_id == conversation_id
+    assert unsafe.conversation_id == ""
+
+
+def test_cancel_posts_to_the_prompt_and_names_why_it_could_not() -> None:
+    # Arrange: the first cancel stops a running prompt, the second finds it finished
+    seen: list[httpx.Request] = []
+    replies = iter(
+        [
+            httpx.Response(
+                202, json={"prompt_id": _ID, "state": "running", "cancel_requested": True}
+            ),
+            httpx.Response(409, json={"error": "already_settled"}),
+        ]
+    )
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return next(replies)
+
+    # Act
+    with _client(httpx.MockTransport(answer)) as client:
+        stopping = client.cancel_prompt(_ID)
+        with pytest.raises(HostedGatewayError) as finished:
+            client.cancel_prompt(_ID)
+
+    # Assert: no user or organization is named; the app decides whose prompt it is
+    assert seen[0].url.path == f"/api/agent-backend/gateway/prompts/{_ID}/cancel"
+    assert json.loads(seen[0].content) == {}
+    assert stopping.cancel_requested is True and stopping.state == "running"
+    assert finished.value.code == ERR_ALREADY_SETTLED
 
 
 @pytest.mark.parametrize(
@@ -120,6 +174,7 @@ class _App:
         self._states = list(states)
         self.sent: list[tuple[str, dict[str, str]]] = []
         self.sent_request_ids: list[str] = []
+        self.sent_conversations: list[str] = []
         self.polled: list[str] = []
         self.answered: list[tuple[str, str]] = []
 
@@ -135,10 +190,11 @@ class _App:
         return None
 
     def send_prompt(
-        self, prompt: str, *, context: dict[str, str], request_id: str = ""
+        self, prompt: str, *, context: dict[str, str], request_id: str = "", conversation: str = ""
     ) -> PromptRecord:
         self.sent.append((prompt, context))
         self.sent_request_ids.append(request_id)
+        self.sent_conversations.append(conversation)
         return self._next()
 
     def prompt_result(self, prompt_id: str) -> PromptRecord:
@@ -566,7 +622,13 @@ def test_the_tool_is_external_takes_no_identifier_and_refuses_an_empty_request()
 
     # Assert
     assert tool.side_effect_level == "external"
-    assert set(tool.input_schema["properties"]) == {"prompt", "facts", "prompt_id", "request_id"}
+    assert set(tool.input_schema["properties"]) == {
+        "prompt",
+        "facts",
+        "prompt_id",
+        "request_id",
+        "conversation",
+    }
     assert tool.accepts_runtime_context is True
     assert out["success"] is False and "Give the hosted gateway a prompt" in out["response_text"]
 
@@ -1008,3 +1070,47 @@ def test_the_client_reads_the_parent_prompt_id_of_a_follow_up() -> None:
 
     # Assert
     assert record.parent_prompt_id == _ID and record.error == "invalid_answer"
+
+
+def test_the_tool_starts_a_separate_conversation_and_refuses_a_malformed_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    conversation_id = "0b6f2c1e-8d4a-4c55-9a77-2f1c3e5d7a90"
+    app = _App([PromptRecord(_ID, "done", answer="ok", conversation_id=conversation_id)])
+    _signed_in_with(monkeypatch, app)
+
+    # Act
+    out = ask_hosted_gateway(prompt="audit the deploy", conversation="new")
+    refused = ask_hosted_gateway(prompt="audit the deploy", conversation="../other")
+
+    # Assert: the id comes back for continuing; a malformed one never reaches the app
+    assert app.sent_conversations == ["new"]
+    assert out["conversation_id"] == conversation_id
+    assert refused["success"] is False and "conversation must be" in refused["response_text"]
+
+
+def test_cancelling_a_running_prompt_says_it_stops_and_a_finished_one_says_why_not(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange
+    class _CancellingApp(_App):
+        def cancel_prompt(self, prompt_id: str) -> PromptRecord:
+            self.polled.append(prompt_id)
+            return self._next()
+
+    app = _CancellingApp(
+        [
+            PromptRecord(_ID, "running", cancel_requested=True),
+            HostedGatewayError(ERR_ALREADY_SETTLED, 409),
+        ]
+    )
+    _signed_in_with(monkeypatch, app)
+
+    # Act
+    stopping = cancel_hosted_gateway_prompt(prompt_id=_ID)
+    finished = cancel_hosted_gateway_prompt(prompt_id=_ID)
+
+    # Assert
+    assert stopping["success"] is True and "stops at its next step" in stopping["response_text"]
+    assert finished["success"] is False and "already finished" in finished["response_text"]

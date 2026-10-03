@@ -173,8 +173,12 @@ read that same Event. Scheduled ticks write it when the stored task is
 disabled or removed (`PredicateCancelConsole`). Do not invent a second
 cancel channel.
 
-**Cloud scale-out:** more Fargate tasks (fleet), not unbound in-process
-concurrency or a new `chat` API.
+**Cloud scale-out:** one gateway task per organization running a bounded
+in-process pool (the process gate, per-conversation ordering, a separate cap on
+heavy subprocess work). An organization that outgrows one task moves agent
+execution into separate worker containers. That means no unbounded in-process
+concurrency, no fleet of gateway tasks sharing one session store, and no new
+`chat` API.
 
 ## Hard boundary
 
@@ -418,8 +422,8 @@ There are two ways into an agent turn:
 
 **Scaling** is separate from the host API: local concurrency
 (`TurnConcurrencyGate` / transport pools / `OPENSRE_SIZE_PROFILE`) and cloud
-Fargate scale-out (spin more tasks; same API per task) sit *around*
-`chat`. Construct-once-per-session is the reuse story;
+scale-out (separate worker containers once one task is not enough; same API
+per worker) sit *around* `chat`. Construct-once-per-session is the reuse story;
 process/task scale-out is deploy. Do not redesign the host API to “enable
 scaling.”
 

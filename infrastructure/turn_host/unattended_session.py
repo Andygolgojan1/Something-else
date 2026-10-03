@@ -37,15 +37,15 @@ class UnattendedSessions:
         prepare_unattended_session(session)
         return session
 
-    def open_conversation(self) -> SessionCore:
-        """Open or resume the hosted conversation in the caller's bound actor scope."""
+    def hosted_conversation(self) -> str | None:
+        """The bound actor's own conversation id, when that conversation still exists."""
         existing = _hosted_conversation_id()
         if existing is not None and self._manager.has_session(existing):
-            session = self.resume(existing)
-            if session.pending_user_choice is None:
-                return session
-            # Only the original prompt's answer may resume its parked choice.
-            self.close(session)
+            return existing
+        return None
+
+    def open_hosted_conversation(self) -> SessionCore:
+        """Open a new conversation and make it the bound actor's own."""
         session = self.open()
         _remember_hosted_conversation(session.session_id)
         return session
@@ -55,6 +55,12 @@ class UnattendedSessions:
         session = self._manager.resolve(session_id, warm_integrations=False, persistent_tasks=False)
         prepare_unattended_session(session)
         return session
+
+    def resume_conversation(self, session_id: str) -> SessionCore | None:
+        """Resume one of the bound actor's conversations; ``None`` when it has no such session."""
+        if not self._manager.has_session(session_id):
+            return None
+        return self.resume(session_id)
 
     def flush(self, session: SessionCore) -> None:
         """Persist the session's state now, so a reload during the turn sees it."""

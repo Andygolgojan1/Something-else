@@ -432,6 +432,9 @@ if TYPE_CHECKING:
         PROMPT_CONTEXT_VALUE_MAX_CHARS as PROMPT_CONTEXT_VALUE_MAX_CHARS,
     )
     from config.constants.gateway import (
+        PROMPT_CONVERSATION_NEW as PROMPT_CONVERSATION_NEW,
+    )
+    from config.constants.gateway import (
         PROMPT_DEFAULT_ACTOR as PROMPT_DEFAULT_ACTOR,
     )
     from config.constants.gateway import (
@@ -984,6 +987,9 @@ if TYPE_CHECKING:
         POSTHOG_MCP_URL_ENV as POSTHOG_MCP_URL_ENV,
     )
     from config.constants.product import (
+        OPENSRE_INTERACTIVE_ENV as OPENSRE_INTERACTIVE_ENV,
+    )
+    from config.constants.product import (
         OPENSRE_PARENT_INTERACTIVE_SHELL_ENV as OPENSRE_PARENT_INTERACTIVE_SHELL_ENV,
     )
     from config.constants.product import (
@@ -1281,6 +1287,12 @@ if TYPE_CHECKING:
         SLACK_HEARTBEAT_STOP_TIMEOUT_SECONDS as SLACK_HEARTBEAT_STOP_TIMEOUT_SECONDS,
     )
     from config.constants.slack import (
+        SLACK_SOCKET_MODE_DEDUP_MAX_EVENTS as SLACK_SOCKET_MODE_DEDUP_MAX_EVENTS,
+    )
+    from config.constants.slack import (
+        SLACK_SOCKET_MODE_DEDUP_TTL_SECONDS as SLACK_SOCKET_MODE_DEDUP_TTL_SECONDS,
+    )
+    from config.constants.slack import (
         SLACK_USER_TOKEN_PREFIXES as SLACK_USER_TOKEN_PREFIXES,
     )
     from config.constants.slack import (
@@ -1410,7 +1422,22 @@ if TYPE_CHECKING:
         TRACER_JWT_TOKEN_ENV as TRACER_JWT_TOKEN_ENV,
     )
     from config.constants.turn_concurrency import (
+        DEFAULT_HEAVY_WORK_CONCURRENCY as DEFAULT_HEAVY_WORK_CONCURRENCY,
+    )
+    from config.constants.turn_concurrency import (
+        DEFAULT_MAX_CACHED_SESSION_AGENTS as DEFAULT_MAX_CACHED_SESSION_AGENTS,
+    )
+    from config.constants.turn_concurrency import (
         DEFAULT_SCHEDULED_RUN_CONCURRENCY as DEFAULT_SCHEDULED_RUN_CONCURRENCY,
+    )
+    from config.constants.turn_concurrency import (
+        HEAVY_WORK_WAIT_SECONDS as HEAVY_WORK_WAIT_SECONDS,
+    )
+    from config.constants.turn_concurrency import (
+        OPENSRE_MAX_CACHED_SESSION_AGENTS_ENV as OPENSRE_MAX_CACHED_SESSION_AGENTS_ENV,
+    )
+    from config.constants.turn_concurrency import (
+        OPENSRE_MAX_CONCURRENT_HEAVY_WORK_ENV as OPENSRE_MAX_CONCURRENT_HEAVY_WORK_ENV,
     )
     from config.constants.turn_concurrency import (
         OPENSRE_MAX_CONCURRENT_TURNS_ENV as OPENSRE_MAX_CONCURRENT_TURNS_ENV,

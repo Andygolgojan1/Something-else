@@ -862,10 +862,13 @@ def _hosted_gateway_case(tool_name: str) -> ToolFailureCase:
             gateway_health,
             gateway_lifecycle,
             gateway_prompt,
+            gateway_prompt_cancel,
         )
 
         if tool_name == "ask_hosted_gateway":
             return gateway_prompt.ask_hosted_gateway(prompt="which tasks run?")
+        if tool_name == "cancel_hosted_gateway_prompt":
+            return gateway_prompt_cancel.cancel_hosted_gateway_prompt(prompt_id="p_" + "a" * 32)
         tools = {
             "check_hosted_gateway": gateway_health.check_hosted_gateway,
             "start_hosted_gateway": gateway_lifecycle.start_hosted_gateway,
@@ -882,6 +885,7 @@ _TOOL_FAILURE_CASES: list[ToolFailureCase] = [
     _hosted_gateway_case("start_hosted_gateway"),
     _hosted_gateway_case("stop_hosted_gateway"),
     _hosted_gateway_case("ask_hosted_gateway"),
+    _hosted_gateway_case("cancel_hosted_gateway_prompt"),
     _ci_repair_case("schedule_ci_repair_loop"),
     _ci_repair_case("get_ci_repair_loop"),
     _ci_repair_demo_case("seed_ci_repair_demo"),
@@ -1099,6 +1103,7 @@ _MIGRATED_TOOL_NAMES: frozenset[str] = frozenset(
         "start_hosted_gateway",
         "stop_hosted_gateway",
         "ask_hosted_gateway",
+        "cancel_hosted_gateway_prompt",
         # EKS — enumerated in #1463
         "list_eks_clusters",
         "describe_eks_cluster",

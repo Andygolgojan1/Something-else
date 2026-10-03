@@ -2,6 +2,12 @@
 
 ``POST /v1/prompt/{id}/answer`` answers a prompt that stopped to ask; the answer runs
 as a follow-up prompt on the same session and comes back as its own record.
+``POST /v1/prompt/{id}/cancel`` cancels a queued or running prompt. When the body
+names an ``actor``, only that actor's prompt can be cancelled.
+
+A prompt continues the actor's own conversation unless ``conversation`` is ``new``
+(a separate conversation, which runs beside the actor's others) or the
+``conversation_id`` of an earlier prompt (that conversation).
 
 The caller is the organization's own control plane (through the OpenSRE app),
 authenticated with the same bearer token the alert intake uses. Nothing here
@@ -11,6 +17,7 @@ names an organization: the gateway serves exactly one.
 from __future__ import annotations
 
 import re
+import uuid
 from http import HTTPStatus
 from typing import Any
 
@@ -20,11 +27,19 @@ from fastapi.responses import JSONResponse
 from config.constants.gateway import (
     PROMPT_CONTEXT_MAX_ITEMS,
     PROMPT_CONTEXT_VALUE_MAX_CHARS,
+    PROMPT_CONVERSATION_NEW,
     PROMPT_DEFAULT_ACTOR,
     PROMPT_MAX_CHARS,
     PROMPT_ROUTE_PATH,
 )
-from gateway.core.prompt_intake.jobs import AnswerRefused, PromptJob, PromptNotSaved, PromptQueue
+from gateway.core.prompt_intake.jobs import (
+    AnswerRefused,
+    CancelRefused,
+    PromptJob,
+    PromptNotSaved,
+    PromptQueue,
+    PromptState,
+)
 from infrastructure.alert_intake import require_local_or_token
 
 router = APIRouter()
@@ -84,13 +99,42 @@ async def answer_prompt(prompt_id: str, request: Request) -> JSONResponse:
     return JSONResponse(follow_up.view(), status_code=HTTPStatus.ACCEPTED)
 
 
+@router.post(PROMPT_ROUTE_PATH + "/{prompt_id}/cancel")
+async def cancel_prompt(prompt_id: str, request: Request) -> JSONResponse:
+    if (auth_error := require_local_or_token(request)) is not None:
+        return auth_error
+    try:
+        queue = _ready_queue(request)
+        payload = await _optional_json_object(request)
+        job = _known_job(queue, prompt_id)
+        actor = payload.get("actor")
+        if actor is not None and _actor(actor) != job.actor:
+            # Another user's prompt reads as unknown, so its id confirms nothing.
+            raise _Refused("unknown_prompt", HTTPStatus.NOT_FOUND)
+        queue.cancel(job)
+    except _Refused as refused:
+        return _error(refused.code, refused.status)
+    except CancelRefused as refused:
+        return _error(refused.code, HTTPStatus.CONFLICT)
+    # A running prompt stops at its next check; the caller polls until it reads ``cancelled``.
+    status = HTTPStatus.ACCEPTED if job.state is PromptState.RUNNING else HTTPStatus.OK
+    return JSONResponse(job.view(), status_code=status)
+
+
 def _submitted(queue: PromptQueue, payload: dict[str, Any]) -> PromptJob:
     prompt = _prompt(payload.get("prompt"))
     context = _context(payload.get("context"))
     actor = _actor(payload.get("actor"))
     request_id = _request_id(payload.get("request_id"))
+    conversation = _conversation(payload.get("conversation"))
     try:
-        job = queue.submit(prompt, context=context, actor=actor, request_id=request_id)
+        job = queue.submit(
+            prompt,
+            context=context,
+            actor=actor,
+            request_id=request_id,
+            conversation=conversation,
+        )
     except PromptNotSaved:
         raise _Refused(_STORE_UNAVAILABLE, HTTPStatus.SERVICE_UNAVAILABLE) from None
     if job is None:
@@ -125,6 +169,13 @@ def _known_job(queue: PromptQueue, prompt_id: str) -> PromptJob:
     if job is None:
         raise _Refused("unknown_prompt", HTTPStatus.NOT_FOUND)
     return job
+
+
+async def _optional_json_object(request: Request) -> dict[str, Any]:
+    """The JSON object body, or an empty one when the request has no body."""
+    if not (await request.body()).strip():
+        return {}
+    return await _json_object(request)
 
 
 async def _json_object(request: Request) -> dict[str, Any]:
@@ -183,6 +234,25 @@ def _request_id(raw: Any) -> str:
     if not isinstance(raw, str) or not _REQUEST_ID.fullmatch(raw):
         raise _Refused("invalid_request_id", HTTPStatus.BAD_REQUEST)
     return raw
+
+
+def _conversation(raw: Any) -> str:
+    """Empty for the actor's own conversation, ``new``, or a conversation id in canonical form.
+
+    An id names a session file, so only the canonical UUID spelling is accepted.
+    """
+    if raw is None or raw == "":
+        return ""
+    if raw == PROMPT_CONVERSATION_NEW:
+        return PROMPT_CONVERSATION_NEW
+    if isinstance(raw, str):
+        try:
+            canonical = str(uuid.UUID(raw))
+        except ValueError:
+            canonical = ""
+        if canonical == raw:
+            return canonical
+    raise _Refused("invalid_conversation", HTTPStatus.BAD_REQUEST)
 
 
 def _error(code: str, status: HTTPStatus) -> JSONResponse:

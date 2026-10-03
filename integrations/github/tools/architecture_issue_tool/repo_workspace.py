@@ -3,22 +3,30 @@
 from __future__ import annotations
 
 import base64
+import logging
 import os
 import re
 import shutil
 import subprocess
 import tempfile
-from collections.abc import Iterator
+import time
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
 from config.constants.paths import OPENSRE_TMP_DIR, ensure_opensre_tmp_dir
+from infrastructure.process.turn_capacity import HEAVY_WORK_BUSY_MESSAGE, heavy_work_slot
 
 _GITHUB_HTTPS_BASE = "https://github.com/"
 _GIT_CLONE_TIMEOUT_SEC = 120.0
 _GIT_REMOTE_TIMEOUT_SEC = 15.0
 _ARCHITECTURE_WORKSPACE_DIR = OPENSRE_TMP_DIR / "workspace"
+_AUDIT_DIR_PREFIX = "audit-"
+# Far longer than any audit turn runs, so only abandoned clones are this old.
+_STALE_AUDIT_MAX_AGE_SEC = 24 * 60 * 60.0
+
+logger = logging.getLogger(__name__)
 
 _SHA_REF_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
 
@@ -43,7 +51,7 @@ def github_remote_url(owner: str, repo: str) -> str:
 
 
 def architecture_workspace_dir() -> Path:
-    """Return the fixed local directory used for architecture audit git clones."""
+    """Return the shared root that holds one private directory per architecture audit."""
     ensure_opensre_tmp_dir()
     return _ARCHITECTURE_WORKSPACE_DIR
 
@@ -64,24 +72,55 @@ def _remove_tree(path: Path, *, action: str) -> None:
         raise WorkspaceError(f"{action} failed: path still exists after removal ({path})")
 
 
-def prepare_architecture_workspace() -> Path:
-    """Reset and return the architecture audit clone directory."""
-    workspace = architecture_workspace_dir()
-    _remove_tree(workspace, action="prepare architecture workspace")
-    workspace.mkdir(parents=True, exist_ok=True)
-    return workspace
+def _sweep_stale_entries(root: Path) -> None:
+    """Best-effort removal of root entries untouched for longer than any audit runs.
 
-
-def cleanup_architecture_workspace(*, path: str | Path | None = None) -> Path:
-    """Delete the architecture workspace. Refuses paths outside the fixed dir."""
-    workspace = architecture_workspace_dir().resolve()
-    target = workspace if path is None else Path(path).expanduser().resolve()
+    Age is the only signal: a live audit's directory is always younger than the
+    cutoff, so concurrent audits never lose their clone to this sweep.
+    """
+    cutoff = time.time() - _STALE_AUDIT_MAX_AGE_SEC
     try:
-        target.relative_to(workspace)
-    except ValueError as exc:
+        entries = list(root.iterdir())
+    except OSError:
+        return
+    for entry in entries:
+        try:
+            if entry.lstat().st_mtime > cutoff:
+                continue
+            if entry.is_dir() and not entry.is_symlink():
+                shutil.rmtree(entry)
+            else:
+                entry.unlink()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            logger.warning("Could not remove stale architecture workspace entry %s: %s", entry, exc)
+
+
+def prepare_architecture_workspace() -> Path:
+    """Create and return a fresh directory for one audit under the shared root.
+
+    Each call gets its own directory, so concurrent audits never share or delete
+    each other's clone. Leftovers older than any audit can run are swept first.
+    """
+    root = architecture_workspace_dir()
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        _sweep_stale_entries(root)
+        return Path(tempfile.mkdtemp(prefix=_AUDIT_DIR_PREFIX, dir=root))
+    except OSError as exc:
+        raise WorkspaceError(f"prepare architecture workspace failed: {exc}") from exc
+
+
+def cleanup_architecture_workspace(path: str | Path) -> Path:
+    """Delete one audit's directory; refuses the shared root and anything outside it."""
+    root = architecture_workspace_dir().resolve()
+    target = Path(path).expanduser().resolve()
+    if target.parent != root:
         raise WorkspaceError(
-            f"cleanup refused: path is outside architecture workspace ({workspace})"
-        ) from exc
+            f"cleanup refused: path is not an audit directory inside the "
+            f"architecture workspace ({root})"
+        )
     _remove_tree(target, action="cleanup architecture workspace")
     return target
 
@@ -240,11 +279,15 @@ def clone_github_repo(
     ref: str = "",
     token: str | None = None,
     local_path: str | None = None,
+    stop: Callable[[], bool] | None = None,
 ) -> RepoWorkspace:
-    """Clone *owner*/*repo* into the architecture workspace (or use *local_path*).
+    """Clone *owner*/*repo* into a fresh audit directory (or use *local_path*).
 
-    Unlike :func:`cloned_github_repo`, this does **not** delete the workspace on
-    return — callers must invoke :func:`cleanup_architecture_workspace`.
+    Unlike :func:`cloned_github_repo`, this does **not** delete the clone on
+    return — callers must pass the returned ``root`` to
+    :func:`cleanup_architecture_workspace`. The clone waits for a process-wide
+    heavy-work slot; ``stop`` (the turn's cancel flag) ends that wait early, and
+    a refusal raises :class:`WorkspaceError`.
     """
     normalized_owner = owner.strip()
     normalized_repo = repo.strip()
@@ -262,19 +305,23 @@ def clone_github_repo(
             root=root,
         )
 
-    destination = prepare_architecture_workspace()
     remote_url = github_remote_url(normalized_owner, normalized_repo)
     effective_ref = ref.strip() or _remote_default_branch(remote_url, token=token)
+    destination = prepare_architecture_workspace()
 
     try:
-        _shallow_clone(
-            remote_url=remote_url,
-            destination=destination,
-            ref=effective_ref,
-            token=token,
-        )
-    except WorkspaceError:
-        cleanup_architecture_workspace()
+        with heavy_work_slot(stop=stop) as started:
+            if started:
+                _shallow_clone(
+                    remote_url=remote_url,
+                    destination=destination,
+                    ref=effective_ref,
+                    token=token,
+                )
+        if not started:
+            raise WorkspaceError(HEAVY_WORK_BUSY_MESSAGE)
+    except Exception:
+        cleanup_architecture_workspace(destination)
         raise
 
     return RepoWorkspace(
@@ -294,11 +341,11 @@ def cloned_github_repo(
     token: str | None = None,
     local_path: str | None = None,
 ) -> Iterator[RepoWorkspace]:
-    """Yield a workspace, cleaning the fixed architecture workspace on exit.
+    """Yield a workspace, deleting this audit's clone directory on exit.
 
     When *local_path* is provided (tests/dev only), the path is yielded as-is and
-    never deleted. Otherwise a shallow clone is created under
-    ``OPENSRE_TMP_DIR/workspace`` and removed on exit.
+    never deleted. Otherwise a shallow clone is created in a fresh directory
+    under ``OPENSRE_TMP_DIR/workspace`` and removed on exit.
     """
     workspace = clone_github_repo(
         owner,
@@ -311,4 +358,4 @@ def cloned_github_repo(
         yield workspace
     finally:
         if local_path is None:
-            cleanup_architecture_workspace()
+            cleanup_architecture_workspace(workspace.root)

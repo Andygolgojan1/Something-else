@@ -41,6 +41,9 @@ PROMPT_QUEUE_MAX = 8
 PROMPT_RESULT_RETENTION_SECONDS = 3_600.0
 #: Actor recorded for a remote prompt when the caller names none.
 PROMPT_DEFAULT_ACTOR = "remote-shell"
+#: ``conversation`` on a remote prompt that starts a separate conversation instead of
+#: continuing the actor's own; it runs beside the actor's other conversations.
+PROMPT_CONVERSATION_NEW = "new"
 #: How long a queued remote prompt waits for a free turn slot before it counts as refused.
 PROMPT_SLOT_WAIT_SECONDS = 300.0
 #: Progress updates a prompt record keeps (the newest).
@@ -101,6 +104,7 @@ __all__ = [
     "NO_ACTIVE_TURN_MESSAGE",
     "PROMPT_CONTEXT_MAX_ITEMS",
     "PROMPT_CONTEXT_VALUE_MAX_CHARS",
+    "PROMPT_CONVERSATION_NEW",
     "PROMPT_DEFAULT_ACTOR",
     "PROMPT_FOREIGN_REFRESH_SECONDS",
     "PROMPT_HEARTBEAT_SECONDS",
