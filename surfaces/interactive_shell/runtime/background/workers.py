@@ -13,6 +13,7 @@ from core.domain.alerts import inbox as _alert_inbox
 from surfaces.interactive_shell.runtime.core.state import ReplState, SpinnerState
 from surfaces.interactive_shell.session import Session
 from surfaces.interactive_shell.ui.alerts import drain_and_render_incoming
+from surfaces.shared.integration_telemetry import capture_github_connection_snapshot
 
 log = logging.getLogger(__name__)
 
@@ -49,6 +50,12 @@ class BackgroundTaskPool:
             ("processor", asyncio.create_task(processor_coro())),
             ("alert watcher", asyncio.create_task(self._alert_watcher())),
             ("spinner ticker", asyncio.create_task(self._spinner_ticker())),
+            (
+                "GitHub connection snapshot",
+                asyncio.create_task(
+                    asyncio.to_thread(capture_github_connection_snapshot, self.session)
+                ),
+            ),
         ]
         return self.tasks
 

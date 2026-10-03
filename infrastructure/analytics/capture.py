@@ -109,6 +109,11 @@ def capture_account_authenticated() -> None:
         capture_exception(exc)
 
 
+def capture_connection_snapshot(properties: Properties) -> None:
+    """Record verified/unknown local GitHub state without credentials."""
+    _capture(Event.GITHUB_CONNECTION_SNAPSHOT, properties)
+
+
 def capture_sign_in_prompted() -> None:
     """Exposure event: the mandatory sign-in screen was rendered to a signed-out user."""
     _capture(Event.SIGN_IN_PROMPTED, {"entrypoint": "sign_in_gate"})
