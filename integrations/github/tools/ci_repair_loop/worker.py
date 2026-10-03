@@ -7,7 +7,7 @@ import logging
 import time
 from http import HTTPStatus
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from config.constants.ci_repair import CI_REPAIR_FINISH_RESERVE_SECONDS, CI_REPAIR_MAX_ATTEMPTS
 from infrastructure.analytics.provider import shutdown_analytics
@@ -48,6 +48,34 @@ from integrations.github.tools.ci_repair_loop.storage import RepairStore
 
 logger = logging.getLogger(__name__)
 
+_DEMO_REGISTRATION_SECONDS = 0
+_DEMO_SETTLE_SECONDS = 0
+_DEMO_POLL_INTERVAL_SECONDS = 2
+
+
+class _CheckWait(TypedDict, total=False):
+    """Optional check-wait overrides. Absent keys keep the real-PR defaults."""
+
+    registration_seconds: int
+    settle_seconds: int
+    poll_interval_seconds: int
+
+
+def _check_wait(run: RepairRun) -> _CheckWait:
+    """Check-wait limits. A demo returns as soon as the head's run is terminal.
+
+    ``run.demo`` is the fixed demo repository. ``run.fast_checks`` is set only
+    when the seeded-demo tool schedules the pull request it just created. A
+    repository whose name looks like that demo keeps the normal windows.
+    """
+    if not run.demo and not run.fast_checks:
+        return {}
+    return {
+        "registration_seconds": _DEMO_REGISTRATION_SECONDS,
+        "settle_seconds": _DEMO_SETTLE_SECONDS,
+        "poll_interval_seconds": _DEMO_POLL_INTERVAL_SECONDS,
+    }
+
 
 def _prepared_demo_head(run: RepairRun, head: str) -> PreparedPush | None:
     """Return the durable push proving that ``head`` belongs to this run, if any."""
@@ -84,7 +112,7 @@ def _run_link(rows: list[dict[str, Any]], *, failed: bool) -> str:
 
 
 def _verify_green(run: RepairRun, pr: dict[str, Any], token: str) -> bool:
-    """Require the normal registration and settlement windows even when no edit is needed."""
+    """Confirm the head's checks passed. A demo skips the extra wait once they are terminal."""
     sha = str(pr["headRefOid"])
     ctx = CiFixContext(
         owner=run.owner,
@@ -99,7 +127,7 @@ def _verify_green(run: RepairRun, pr: dict[str, Any], token: str) -> bool:
         failing_checks=(),
         task="Verify the selected PR head.",
     )
-    result = wait_for_pr_checks(ctx, github_token=token, expected_head_sha=sha)
+    result = wait_for_pr_checks(ctx, github_token=token, expected_head_sha=sha, **_check_wait(run))
     if result.state is CheckState.FAILED:
         return False
     if result.state is CheckState.PASSED:
@@ -190,6 +218,7 @@ def _repair(run: RepairRun, store: RepairStore, token: str) -> None:
             github_token=token,
             allowed_paths=frozenset({"calculator.py"}) if run.demo else None,
             expected_source_head_sha=head,
+            **_check_wait(run),
         )
         diagnostic = store.directory(run.id) / f"attempt-{run.attempts}.json"
         diagnostic.write_text(json.dumps(output, indent=2), encoding="utf-8")
