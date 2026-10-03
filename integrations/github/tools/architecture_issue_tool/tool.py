@@ -140,6 +140,7 @@ def architecture_clone_repo(
             token=resolve_github_token(github_token) or None,
             local_path=local_path,
             stop=_turn_cancelled(context),
+            audit_owner=_session_id_from_runtime(context),
         )
     except WorkspaceError as exc:
         return {
@@ -165,8 +166,9 @@ def architecture_clone_repo(
     source="github",
     description=(
         "Delete this audit's clone after an architecture audit. Pass the "
-        "workspace_root that architecture_clone_repo returned; any other path, "
-        "including the shared opensre/workspace directory, is refused."
+        "workspace_root that architecture_clone_repo returned in this session; any "
+        "other path, including the shared opensre/workspace directory and another "
+        "session's audit, is refused."
     ),
     use_cases=["Cleanup after architecture_clone_repo"],
     anti_examples=["Deleting arbitrary paths outside the architecture workspace"],
@@ -185,14 +187,18 @@ def architecture_clone_repo(
         "additionalProperties": False,
     },
     is_available=_always_available,
+    accepts_runtime_context=True,
 )
 def architecture_cleanup_repo(
     workspace_root: str,
+    context: Any = None,
     **_kwargs: Any,
 ) -> dict[str, Any]:
-    """Remove the clone directory of the audit that owns *workspace_root*."""
+    """Remove the clone directory of this session's audit at *workspace_root*."""
     try:
-        removed = cleanup_architecture_workspace(workspace_root)
+        removed = cleanup_architecture_workspace(
+            workspace_root, audit_owner=_session_id_from_runtime(context)
+        )
     except WorkspaceError as exc:
         return {"ok": False, "removed_path": "", "error": str(exc)}
     return {"ok": True, "removed_path": str(removed), "error": ""}

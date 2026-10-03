@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 import threading
 import time
 import uuid
 from collections import deque
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, TypeGuard
@@ -28,6 +29,8 @@ from config.constants.gateway import (
     PROMPT_RESULT_RETENTION_SECONDS,
 )
 from gateway.core.prompt_intake.job_store import PromptJobStore
+
+logger = logging.getLogger(__name__)
 
 _PLAN_PROGRESS_KINDS = frozenset({PROMPT_PROGRESS_KIND_PLAN, PROMPT_PROGRESS_KIND_PLAN_DONE})
 
@@ -112,7 +115,7 @@ _RECORD_TEXT_FIELDS = (
     "conversation",
 )
 #: Failures after which the gateway reopens the question the follow-up answered.
-_REOPENING_ERRORS = frozenset({ERROR_INVALID_ANSWER, ERROR_INTERRUPTED})
+_REOPENING_ERRORS = frozenset({ERROR_INVALID_ANSWER, ERROR_INTERRUPTED, ERROR_CANCELLED})
 #: What another task's newer record may change on a job this task holds.
 _ADOPTED_FIELDS = (
     "state",
@@ -184,6 +187,9 @@ class PromptJob:
     _cancel_event: threading.Event | None = field(default=None, repr=False)
     #: A session another prompt was running on when this one resolved to it.
     _waits_for: str = field(default="", repr=False)
+    #: The actor's own conversation when this prompt was submitted, for a prompt that
+    #: continues it; orders it with prompts that name that conversation.
+    _hosted_hint: str = field(default="", repr=False)
 
     @property
     def settled(self) -> bool:
@@ -318,8 +324,12 @@ class PromptQueue:
         store: PromptJobStore | None = None,
         stale_seconds: float = PROMPT_JOB_STALE_SECONDS,
         refresh_seconds: float = PROMPT_FOREIGN_REFRESH_SECONDS,
+        hosted_conversation: Callable[[str], str | None] | None = None,
     ) -> None:
         self._max_queued = max_queued
+        #: Reads an actor's own conversation id, so a prompt continuing it queues
+        #: behind the prompts that named that conversation before it.
+        self._hosted_conversation = hosted_conversation
         self._retention_seconds = retention_seconds
         self._clock = clock
         self._store = store
@@ -342,6 +352,8 @@ class PromptQueue:
         self._forgotten: deque[PromptJob] = deque()
         #: Conversation and session keys held by the running (or deferred) job, by key.
         self._busy: dict[str, str] = {}
+        #: Each actor's own conversation as running prompts last resolved it.
+        self._hosted: dict[str, str] = {}
         self._lock = threading.Lock()
         self._available = threading.Condition(self._lock)
         if store is not None:
@@ -406,6 +418,8 @@ class PromptQueue:
         acknowledged only once a replacement task could still answer it.
         """
         now = self._clock()
+        # Read before taking the lock: it is a file on the deployment's home.
+        hosted_hint = "" if conversation else self._read_hosted_conversation(actor)
         with self._lock:
             self._forget_expired()
             known = self._request_job(request_id, parent_id="")
@@ -422,6 +436,7 @@ class PromptQueue:
                 request_id=request_id,
                 conversation=conversation,
             )
+            job._hosted_hint = hosted_hint
             with job._lock:
                 record = job._bump(now)
             self._hold(job)
@@ -529,7 +544,7 @@ class PromptQueue:
                 self._available.wait(timeout=remaining)
                 job = self._next_runnable()
             self._pending.remove(job)
-            for key in _keys(job):
+            for key in self._keys(job):
                 self._busy[key] = job.id
             # The session it waited for is now held like its own; nothing more to wait for.
             job._waits_for = ""
@@ -539,19 +554,23 @@ class PromptQueue:
         self._save(record)
         return job
 
-    def bind_session(self, job: PromptJob, session_id: str) -> bool:
+    def bind_session(self, job: PromptJob, session_id: str, *, hosted: bool = False) -> bool:
         """Hold ``session_id`` for the running ``job`` and record it as the job's session.
 
-        False when another running prompt holds that session, which happens when a
-        caller named the conversation the actor's own resolved to; :meth:`defer`
-        the job then. The id becomes readable only once it is held, so a caller
-        cannot name it while nothing orders prompts on it.
+        ``hosted`` marks it as the actor's own conversation: later prompts that
+        continue it then queue under that session, in order with prompts naming it.
+        False when another running prompt holds that session (a caller named the
+        conversation the actor's own resolved to before this one knew it);
+        :meth:`defer` the job then. The id becomes readable only once it is held,
+        so a caller cannot name it while nothing orders prompts on it.
         """
         key = _SESSION_KEY + session_id
         with self._lock:
             if self._busy.get(key, job.id) != job.id:
                 return False
             self._busy[key] = job.id
+            if hosted:
+                self._hosted[job.actor] = session_id
             with job._lock:
                 job.session_id = session_id
         return True
@@ -560,7 +579,7 @@ class PromptQueue:
         """Let go of a session ``job`` held and moved off, so prompts waiting on it run."""
         key = _SESSION_KEY + session_id
         with self._lock:
-            if self._busy.get(key) == job.id and key != _conversation_key(job):
+            if self._busy.get(key) == job.id and key != self._conversation_key(job):
                 del self._busy[key]
                 self._available.notify_all()
 
@@ -764,10 +783,43 @@ class PromptQueue:
             saved = self._store.save(record) and saved
         return saved
 
+    def _read_hosted_conversation(self, actor: str) -> str:
+        """The actor's own conversation id as stored, or "" when unknown or unreadable."""
+        if self._hosted_conversation is None:
+            return ""
+        try:
+            return self._hosted_conversation(actor) or ""
+        except Exception:
+            logger.warning("[gateway] could not read the actor's conversation", exc_info=True)
+            return ""
+
+    def _conversation_key(self, job: PromptJob) -> str:
+        """The key that orders ``job`` behind earlier prompts of its conversation; caller holds the lock.
+
+        A prompt continuing the actor's own conversation takes that session's key
+        once the session is known, so it and a prompt naming the session queue in
+        the order they came instead of racing.
+        """
+        if job.parent_id:
+            return _SESSION_KEY + job.session_id
+        if job.conversation == PROMPT_CONVERSATION_NEW:
+            return _PROMPT_KEY + job.id
+        if job.conversation:
+            return _SESSION_KEY + job.conversation
+        hosted = self._hosted.get(job.actor) or job._hosted_hint
+        return _SESSION_KEY + hosted if hosted else _ACTOR_KEY + job.actor
+
+    def _keys(self, job: PromptJob) -> tuple[str, ...]:
+        """Every key ``job`` needs free to run; caller holds the lock."""
+        key = self._conversation_key(job)
+        if job._waits_for and job._waits_for != key:
+            return (key, job._waits_for)
+        return (key,)
+
     def _next_runnable(self) -> PromptJob | None:
         """The oldest queued job no other job holds a key of; caller holds the lock."""
         for job in self._pending:
-            if all(self._busy.get(key, job.id) == job.id for key in _keys(job)):
+            if all(self._busy.get(key, job.id) == job.id for key in self._keys(job)):
                 return job
         return None
 
@@ -1047,25 +1099,6 @@ class PromptQueue:
 _ACTOR_KEY = "actor:"
 _SESSION_KEY = "session:"
 _PROMPT_KEY = "prompt:"
-
-
-def _conversation_key(job: PromptJob) -> str:
-    """The key that orders ``job`` behind earlier prompts of the conversation it continues."""
-    if job.parent_id:
-        return _SESSION_KEY + job.session_id
-    if job.conversation == PROMPT_CONVERSATION_NEW:
-        return _PROMPT_KEY + job.id
-    if job.conversation:
-        return _SESSION_KEY + job.conversation
-    return _ACTOR_KEY + job.actor
-
-
-def _keys(job: PromptJob) -> tuple[str, ...]:
-    """Every key ``job`` needs free to run: its conversation and any session it waits for."""
-    key = _conversation_key(job)
-    if job._waits_for and job._waits_for != key:
-        return (key, job._waits_for)
-    return (key,)
 
 
 def _answer_released(follow_up: PromptJob | None) -> bool:

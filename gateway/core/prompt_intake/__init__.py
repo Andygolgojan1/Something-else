@@ -26,7 +26,11 @@ from gateway.core.prompt_intake.jobs import (
     PromptState,
 )
 from gateway.core.prompt_intake.output import CollectingTurnOutput
-from gateway.core.prompt_intake.worker import PromptTurnRunner, PromptWorker
+from gateway.core.prompt_intake.worker import (
+    PromptTurnRunner,
+    PromptWorker,
+    actor_conversation,
+)
 
 __all__ = [
     "ALREADY_ANSWERED",
@@ -52,5 +56,6 @@ __all__ = [
     "PromptState",
     "PromptTurnRunner",
     "PromptWorker",
+    "actor_conversation",
     "prompt_jobs_path",
 ]

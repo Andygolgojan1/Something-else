@@ -99,6 +99,7 @@ _FAILURE_TEXT = {
 _ANSWER_NOT_USED = {
     "invalid_answer": "That answer did not match the question's options; the question opens again. ",
     "interrupted": "The hosted gateway restarted before it used that answer; the question opens again. ",
+    "cancelled": "That answer was cancelled; the question opens again. ",
 }
 #: The prompt id stays in the user's line: it is all the resumed turn keeps of this result.
 _ASKING_IN_SHELL = (

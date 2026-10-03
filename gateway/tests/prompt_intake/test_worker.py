@@ -952,6 +952,59 @@ def test_a_cancelled_running_prompt_settles_cancelled_and_leaves_no_question_beh
     assert handler.dropped == [job.session_id]
 
 
+class _AnswerHandler(_Handler):
+    """Asks on the first turn; the answer's turn runs until cancelled unless ``let_through``."""
+
+    def __init__(self) -> None:
+        super().__init__(answer="pushed")
+        self.answering = threading.Event()
+        self.let_through = False
+
+    def run(self, text: str, session: SessionCore, output: Any, logger: Any, **kwargs: Any) -> Any:
+        session.record("chat", text)
+        if not self.seen_text:
+            self.asks = PendingUserChoice(title="Which branch?", options=("main", "release"))
+            return super().run(text, session, output, logger, **kwargs)
+        self.asks = None
+        if not self.let_through:
+            self.answering.set()
+            assert output.turn_cancel.wait(_WAIT)
+        return super().run(text, session, output, logger, **kwargs)
+
+
+def test_a_cancelled_running_answer_gives_its_question_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange: a prompt parked on a question, and an answer that is now running
+    monkeypatch.setattr("config.constants.paths.OPENSRE_HOME_DIR", tmp_path)
+    monkeypatch.delenv("OPENSRE_CONTEXT_ROOT", raising=False)
+    handler = _AnswerHandler()
+    queue = _SignallingQueue()
+    worker = PromptWorker(queue, handler, logger=_LOGGER, sessions=UnattendedSessions())
+    asked = queue.submit("fix ci", context={}, actor="u")
+    assert asked is not None
+
+    # Act
+    worker.start()
+    try:
+        queue.wait_settled(1)
+        answer = queue.answer(asked, "main")
+        assert answer is not None and handler.answering.wait(_WAIT)
+        queue.cancel(answer)
+        queue.wait_settled(1)
+        handler.let_through = True
+        again = queue.answer(asked, "release")
+        assert again is not None
+        queue.wait_settled(1)
+    finally:
+        worker.stop(timeout_seconds=_WAIT)
+
+    # Assert: the question took a second answer, and it resolved against the question
+    assert (answer.state, answer.error_code) == (PromptState.FAILED, ERROR_CANCELLED)
+    assert again.state is PromptState.DONE and asked.answered_by == again.id
+    assert '"release"' in handler.seen_text
+
+
 def _org_silo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("config.constants.paths.OPENSRE_HOME_DIR", tmp_path)
     monkeypatch.delenv("OPENSRE_CONTEXT_ROOT", raising=False)
@@ -1057,14 +1110,17 @@ class _LoggingSessions(UnattendedSessions):
 def test_a_prompt_whose_own_conversation_is_named_by_a_running_prompt_waits_for_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Arrange: alice's own conversation exists; one prompt names it, the next uses it by default
+    # Arrange: alice's own conversation exists from before a restart, so this task does
+    # not know it yet; one prompt names it, the next continues it by default
     _org_silo(tmp_path, monkeypatch)
     log: list[tuple[str, str]] = []
     handler = _HoldingHandler(hold="named", log=log)
+    earlier_queue = PromptQueue()
+    own = _run(
+        PromptWorker(earlier_queue, handler, logger=_LOGGER), earlier_queue, "first", "alice"
+    )
     queue = _SignallingQueue()
     worker = PromptWorker(queue, handler, logger=_LOGGER, sessions=_LoggingSessions(log), workers=2)
-    own = _run(worker, queue, "first", "alice")
-    queue.wait_settled(1)
     named = queue.submit("named", context={}, actor="alice", conversation=own.session_id)
     by_default = queue.submit("by default", context={}, actor="alice")
     assert named is not None and by_default is not None

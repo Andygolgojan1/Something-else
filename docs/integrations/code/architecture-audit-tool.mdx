@@ -49,7 +49,7 @@ Uses the same GitHub credentials as [GitHub](/integrations/code/github) (`GITHUB
 | Tool | What it does | Side effects |
 | --- | --- | --- |
 | `architecture_clone_repo` | Shallow-clone `owner/repo` into `opensre/workspace` under the system temp directory | Creates files on disk |
-| `architecture_cleanup_repo` | Delete the clone at the `workspace_root` that `architecture_clone_repo` returned (refuses any other path) | Deletes clone |
+| `architecture_cleanup_repo` | Delete the clone at the `workspace_root` that `architecture_clone_repo` returned in the same session (refuses any other path) | Deletes clone |
 | `architecture_save_observations` | Write the full observation list to `~/.opensre/{session_id}/{repo}-architecture-audit-{uuid}.md` | Writes a file |
 
 ### `architecture_clone_repo`
@@ -96,7 +96,7 @@ Expected output includes MCP tool discovery; architecture tools additionally acc
 | --- | --- |
 | **Clone fails / auth** | Verify GitHub credentials and `repo` scope for private repos |
 | **Save fails without session** | Start `opensre` so a session id exists under `~/.opensre/sessions/` |
-| **Leftover clone on disk** | Run `architecture_cleanup_repo` with the clone's `workspace_root` |
+| **Leftover clone on disk** | Run `architecture_cleanup_repo` with the clone's `workspace_root` in the session that cloned it. Clones left by another session or an earlier run are removed automatically after 24 hours. |
 | **Short report only** | Pass the full four-pass observation list to `architecture_save_observations` |
 
 ## Security

@@ -26,6 +26,7 @@ from gateway.core.prompt_intake import (
     PromptQueue,
     PromptTurnRunner,
     PromptWorker,
+    actor_conversation,
     prompt_jobs_path,
 )
 from gateway.transports.names import TransportName
@@ -118,7 +119,7 @@ def start_prompt_intake(*, logger: logging.Logger, runner: PromptTurnRunner) -> 
     """
     from gateway.web.webapp import app
 
-    queue = PromptQueue(store=_prompt_job_store(logger))
+    queue = PromptQueue(store=_prompt_job_store(logger), hosted_conversation=actor_conversation)
     app.state.prompt_queue = queue
     worker = PromptWorker(queue, runner, logger=logger, workers=process_turn_gate().limit)
     worker.start()

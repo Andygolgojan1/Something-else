@@ -509,6 +509,44 @@ def test_a_prompt_whose_session_is_busy_waits_first_in_line_and_keeps_its_conver
     assert own.session_id == _SESSION
 
 
+def test_a_prompt_continuing_the_actors_conversation_keeps_its_place_before_one_naming_it() -> None:
+    # Arrange: alice's own conversation is _SESSION; she continues it, then names it
+    queue = PromptQueue(clock=_Clock().read, hosted_conversation={"alice": _SESSION}.get)
+    continuing = queue.submit("continue", context={}, actor="alice")
+    naming = queue.submit("named", context={}, actor="alice", conversation=_SESSION)
+    assert continuing is not None and naming is not None
+
+    # Act
+    first = queue.take(timeout_seconds=0.01)
+    while_first_runs = queue.take(timeout_seconds=0.01)
+    queue.finish(continuing, "done")
+    second = queue.take(timeout_seconds=0.01)
+
+    # Assert: they never ran together, and in the order they came
+    assert first is continuing and while_first_runs is None
+    assert second is naming
+
+
+def test_once_a_prompt_resolves_the_actors_conversation_later_ones_queue_behind_it() -> None:
+    # Arrange: nothing told the queue alice's conversation before her first prompt ran
+    queue = PromptQueue(clock=_Clock().read)
+    first = queue.submit("first", context={}, actor="alice")
+    assert first is not None and queue.take(timeout_seconds=0.01) is first
+    assert queue.bind_session(first, _SESSION, hosted=True)
+    continuing = queue.submit("continue", context={}, actor="alice")
+    naming = queue.submit("named", context={}, actor="alice", conversation=_SESSION)
+    assert continuing is not None and naming is not None
+
+    # Act
+    while_first_runs = queue.take(timeout_seconds=0.01)
+    queue.finish(first, "done")
+    taken = [queue.take(timeout_seconds=0.01), queue.take(timeout_seconds=0.01)]
+
+    # Assert: both wait for the session, then run one at a time in submission order
+    assert while_first_runs is None
+    assert taken == [continuing, None]
+
+
 def test_cancel_settles_a_queued_prompt_stops_a_running_one_and_refuses_a_settled_one() -> None:
     # Arrange
     queue = PromptQueue(clock=_Clock().read)

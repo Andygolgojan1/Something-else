@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -72,20 +73,28 @@ def _remove_tree(path: Path, *, action: str) -> None:
         raise WorkspaceError(f"{action} failed: path still exists after removal ({path})")
 
 
+#: Audit directories this process created and has not cleaned up, by the session
+#: that owns each ("" for a caller without one). Only that owner may delete one.
+_live_audits: dict[Path, str] = {}
+_live_audits_lock = threading.Lock()
+
+
 def _sweep_stale_entries(root: Path) -> None:
     """Best-effort removal of root entries untouched for longer than any audit runs.
 
-    Age is the only signal: a live audit's directory is always younger than the
-    cutoff, so concurrent audits never lose their clone to this sweep.
+    A live audit of this process is never swept, whatever its age; anything else
+    older than the cutoff is a leftover of a run that died.
     """
     cutoff = time.time() - _STALE_AUDIT_MAX_AGE_SEC
     try:
         entries = list(root.iterdir())
     except OSError:
         return
+    with _live_audits_lock:
+        live = set(_live_audits)
     for entry in entries:
         try:
-            if entry.lstat().st_mtime > cutoff:
+            if entry.resolve() in live or entry.lstat().st_mtime > cutoff:
                 continue
             if entry.is_dir() and not entry.is_symlink():
                 shutil.rmtree(entry)
@@ -97,23 +106,32 @@ def _sweep_stale_entries(root: Path) -> None:
             logger.warning("Could not remove stale architecture workspace entry %s: %s", entry, exc)
 
 
-def prepare_architecture_workspace() -> Path:
+def prepare_architecture_workspace(*, audit_owner: str = "") -> Path:
     """Create and return a fresh directory for one audit under the shared root.
 
     Each call gets its own directory, so concurrent audits never share or delete
-    each other's clone. Leftovers older than any audit can run are swept first.
+    each other's clone. ``audit_owner`` (the calling session) is the only caller
+    :func:`cleanup_architecture_workspace` lets delete it. Leftovers older than
+    any audit can run are swept first.
     """
     root = architecture_workspace_dir()
     try:
         root.mkdir(parents=True, exist_ok=True)
         _sweep_stale_entries(root)
-        return Path(tempfile.mkdtemp(prefix=_AUDIT_DIR_PREFIX, dir=root))
+        directory = Path(tempfile.mkdtemp(prefix=_AUDIT_DIR_PREFIX, dir=root)).resolve()
     except OSError as exc:
         raise WorkspaceError(f"prepare architecture workspace failed: {exc}") from exc
+    with _live_audits_lock:
+        _live_audits[directory] = audit_owner
+    return directory
 
 
-def cleanup_architecture_workspace(path: str | Path) -> Path:
-    """Delete one audit's directory; refuses the shared root and anything outside it."""
+def cleanup_architecture_workspace(path: str | Path, *, audit_owner: str = "") -> Path:
+    """Delete one audit's directory, only for the session that created it.
+
+    Refuses the shared root, anything outside it, and an audit directory another
+    session owns or this process did not create (leftovers are swept by age).
+    """
     root = architecture_workspace_dir().resolve()
     target = Path(path).expanduser().resolve()
     if target.parent != root:
@@ -121,7 +139,13 @@ def cleanup_architecture_workspace(path: str | Path) -> Path:
             f"cleanup refused: path is not an audit directory inside the "
             f"architecture workspace ({root})"
         )
+    with _live_audits_lock:
+        owner = _live_audits.get(target)
+    if owner is None or owner != audit_owner:
+        raise WorkspaceError("cleanup refused: that directory is not an audit this session started")
     _remove_tree(target, action="cleanup architecture workspace")
+    with _live_audits_lock:
+        _live_audits.pop(target, None)
     return target
 
 
@@ -280,6 +304,7 @@ def clone_github_repo(
     token: str | None = None,
     local_path: str | None = None,
     stop: Callable[[], bool] | None = None,
+    audit_owner: str = "",
 ) -> RepoWorkspace:
     """Clone *owner*/*repo* into a fresh audit directory (or use *local_path*).
 
@@ -287,7 +312,8 @@ def clone_github_repo(
     return — callers must pass the returned ``root`` to
     :func:`cleanup_architecture_workspace`. The clone waits for a process-wide
     heavy-work slot; ``stop`` (the turn's cancel flag) ends that wait early, and
-    a refusal raises :class:`WorkspaceError`.
+    a refusal raises :class:`WorkspaceError`. ``audit_owner`` (the calling
+    session) is the only caller that may clean the clone up.
     """
     normalized_owner = owner.strip()
     normalized_repo = repo.strip()
@@ -307,7 +333,7 @@ def clone_github_repo(
 
     remote_url = github_remote_url(normalized_owner, normalized_repo)
     effective_ref = ref.strip() or _remote_default_branch(remote_url, token=token)
-    destination = prepare_architecture_workspace()
+    destination = prepare_architecture_workspace(audit_owner=audit_owner)
 
     try:
         with heavy_work_slot(stop=stop) as started:
@@ -321,7 +347,7 @@ def clone_github_repo(
         if not started:
             raise WorkspaceError(HEAVY_WORK_BUSY_MESSAGE)
     except Exception:
-        cleanup_architecture_workspace(destination)
+        cleanup_architecture_workspace(destination, audit_owner=audit_owner)
         raise
 
     return RepoWorkspace(

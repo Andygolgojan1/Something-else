@@ -150,6 +150,25 @@ def test_concurrent_audits_get_separate_clones_and_clean_up_independently(
     assert list(workspace_root.iterdir()) == []
 
 
+def test_only_the_session_that_started_an_audit_can_delete_its_clone(
+    workspace_root: Path,
+) -> None:
+    """Another session naming a live audit's directory must not interrupt that audit."""
+    alices = prepare_architecture_workspace(audit_owner="session-alice")
+    (alices / "README.md").write_text("live\n", encoding="utf-8")
+    unknown = workspace_root / "audit-from-another-process"
+    unknown.mkdir()
+
+    with pytest.raises(WorkspaceError, match="not an audit this session started"):
+        cleanup_architecture_workspace(alices, audit_owner="session-bob")
+    with pytest.raises(WorkspaceError, match="not an audit this session started"):
+        cleanup_architecture_workspace(unknown, audit_owner="session-bob")
+
+    assert (alices / "README.md").exists() and unknown.exists()
+    cleanup_architecture_workspace(alices, audit_owner="session-alice")
+    assert not alices.exists()
+
+
 def test_prepare_sweeps_only_abandoned_entries(workspace_root: Path) -> None:
     """Leftovers from crashed audits go; a live audit's directory survives a new audit."""
     live = prepare_architecture_workspace()

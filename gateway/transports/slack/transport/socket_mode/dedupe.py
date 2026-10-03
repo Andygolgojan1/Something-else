@@ -15,6 +15,7 @@ from typing import NamedTuple
 
 from config.constants.slack import (
     SLACK_SOCKET_MODE_DEDUP_MAX_EVENTS,
+    SLACK_SOCKET_MODE_DEDUP_RETRY_WINDOW_SECONDS,
     SLACK_SOCKET_MODE_DEDUP_TTL_SECONDS,
 )
 from gateway.core.storage.events.repository import ABANDONED_CLAIM_SECONDS
@@ -32,7 +33,10 @@ class BoundedHandledSlackEventRepository:
     confirmed, a provisional claim younger than ``abandoned_after_seconds``
     refuses a concurrent duplicate, and a released one is free again. Socket
     Mode runs listeners on several threads, so every method takes the lock.
-    Size eviction drops the oldest entry first.
+    Size eviction drops the oldest entry first, but never one younger than
+    ``retry_window_seconds``: Slack may still redeliver that event, and its
+    work may still be queued or running. A burst can then exceed the cap
+    until those entries age out of the window.
     """
 
     def __init__(
@@ -40,6 +44,7 @@ class BoundedHandledSlackEventRepository:
         *,
         ttl_seconds: float = SLACK_SOCKET_MODE_DEDUP_TTL_SECONDS,
         max_events: int = SLACK_SOCKET_MODE_DEDUP_MAX_EVENTS,
+        retry_window_seconds: float = SLACK_SOCKET_MODE_DEDUP_RETRY_WINDOW_SECONDS,
         abandoned_after_seconds: float = ABANDONED_CLAIM_SECONDS,
         now: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -48,6 +53,7 @@ class BoundedHandledSlackEventRepository:
         self._entries: OrderedDict[str, _Handled] = OrderedDict()
         self._ttl = ttl_seconds
         self._max_events = max_events
+        self._retry_window = retry_window_seconds
         self._abandoned_after = abandoned_after_seconds
         self._now = now
         self._lock = threading.Lock()
@@ -78,6 +84,10 @@ class BoundedHandledSlackEventRepository:
         self._entries[event_id] = entry
         self._entries.move_to_end(event_id)
         while len(self._entries) > self._max_events:
+            _oldest_id, oldest = next(iter(self._entries.items()))
+            if entry.at - oldest.at < self._retry_window:
+                # Every remaining entry is at least this young; keep them all.
+                return
             self._entries.popitem(last=False)
 
     def _expire(self, now: float) -> None:

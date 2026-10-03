@@ -39,7 +39,7 @@ class UnattendedSessions:
 
     def hosted_conversation(self) -> str | None:
         """The bound actor's own conversation id, when that conversation still exists."""
-        existing = _hosted_conversation_id()
+        existing = hosted_conversation_id()
         if existing is not None and self._manager.has_session(existing):
             return existing
         return None
@@ -70,8 +70,8 @@ class UnattendedSessions:
         self._manager.close(session, wait_for_memory_extraction=False)
 
 
-def _hosted_conversation_id() -> str | None:
-    """Read the conversation binding from the caller's bound actor scope."""
+def hosted_conversation_id() -> str | None:
+    """The bound actor's own conversation id as stored; it may name a deleted session."""
     from config.constants.paths import session_home
 
     path = session_home() / "hosted-conversation"
@@ -265,6 +265,7 @@ __all__ = [
     "DENY_OPTION",
     "AnswerRejected",
     "UnattendedSessions",
+    "hosted_conversation_id",
     "answer_pending_choice",
     "approval_grant",
     "approval_question",

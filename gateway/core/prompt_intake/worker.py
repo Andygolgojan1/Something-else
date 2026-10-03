@@ -56,6 +56,7 @@ from infrastructure.turn_host.unattended_session import (
     approval_grant,
     approval_question,
     choice_view,
+    hosted_conversation_id,
     invocation_key,
 )
 from tools.registry import integration_of_tool
@@ -207,6 +208,8 @@ class PromptWorker:
             self._run_bound_job(job, org)
 
     def _run_bound_job(self, job: PromptJob, org: str) -> None:
+        #: The question a follow-up answers; a cancelled answer hands it back.
+        question: Any = None
         if job.parent_id:
             # The follow-up's own conversation key already holds this session.
             session = self._sessions.resume(job.session_id)
@@ -214,6 +217,7 @@ class PromptWorker:
                 asked = self._asked.pop(session.session_id, None)
             if asked is not None:
                 session.pending_user_choice = asked
+            question = session.pending_user_choice
             text = self._answer_text(job, session)
             if text is None:
                 self._sessions.close(session)
@@ -245,15 +249,15 @@ class PromptWorker:
                 )
         finally:
             if job.cancel_requested:
-                # No answer will come for a question the cancelled turn asked; a parked
-                # one would hold the conversation forever.
-                session.pending_user_choice = None
+                # A cancelled answer puts its question back to be answered again. A
+                # question the cancelled turn asked gets no answer, and a parked one
+                # would hold the conversation forever.
+                session.pending_user_choice = question
             self._sessions.close(session)
 
         failed = failures.vendors()
         if job.cancel_requested:
-            self._forget(session.session_id)
-            self._queue.fail(job, ERROR_CANCELLED, failed_integrations=failed)
+            self._settle_cancelled(job, session.session_id, question, failed)
             return
         pending = getattr(session, "pending_user_choice", None)
         if pending is not None:
@@ -278,6 +282,20 @@ class PromptWorker:
             return
         self._queue.finish(job, output.answer, failed_integrations=failed)
 
+    def _settle_cancelled(
+        self, job: PromptJob, session_id: str, question: Any, failed: tuple[str, ...]
+    ) -> None:
+        """Settle a cancelled turn; a cancelled answer reopens the question it answered."""
+        if question is None:
+            self._forget(session_id)
+        else:
+            with self._state_lock:
+                # A grant the cancelled answer made must not outlive it.
+                self._approved.pop(session_id, None)
+                self._asked[session_id] = question
+            self._queue.reopen(job.parent_id)
+        self._queue.fail(job, ERROR_CANCELLED, failed_integrations=failed)
+
     def _open_session(self, job: PromptJob, org: str) -> SessionCore | None:
         """Open the conversation ``job`` asked for, holding it before it is read.
 
@@ -301,7 +319,7 @@ class PromptWorker:
             return named
         existing = self._sessions.hosted_conversation()
         if existing is not None:
-            if not self._queue.bind_session(job, existing):
+            if not self._queue.bind_session(job, existing, hosted=True):
                 # A prompt that named the actor's conversation runs on it; wait for it.
                 self._queue.defer(job, existing)
                 return None
@@ -310,8 +328,15 @@ class PromptWorker:
                 return session
             # Only the original prompt's answer may resume its parked choice.
             self._sessions.close(session)
+            opened = self._sessions.open_hosted_conversation()
+            self._queue.bind_session(job, opened.session_id, hosted=True)
+            # Released only now that the actor's conversation is the new one, so the
+            # parked question's answer runs without waiting for this prompt.
             self._queue.release_session(job, existing)
-        return self._hold_new(job, self._sessions.open_hosted_conversation())
+            return opened
+        opened = self._sessions.open_hosted_conversation()
+        self._queue.bind_session(job, opened.session_id, hosted=True)
+        return opened
 
     def _hold_new(self, job: PromptJob, session: SessionCore) -> SessionCore:
         """Hold a session ``job`` just opened; no other prompt can know its id yet."""
@@ -493,6 +518,19 @@ def _turn_context(org: str, job: PromptJob, session: SessionCore, denial: _Denia
     return stack
 
 
+def actor_conversation(actor: str) -> str | None:
+    """The actor's own conversation id on an organization's gateway, read in their scope.
+
+    ``None`` without an organization: there each prompt opens a session of its own.
+    """
+    org = organization_id()
+    if not org:
+        return None
+    scope = StorageScope(principal=Principal.org(org), actor=Actor(id=actor))
+    with bound_storage_scope(scope):
+        return hosted_conversation_id()
+
+
 def _render_prompt(job: PromptJob) -> str:
     """The prompt plus the facts the caller resolved up front, so nothing is left to ask."""
     if not job.context:
@@ -523,4 +561,5 @@ def _question_text(pending: Any) -> str:
 __all__ = [
     "PromptTurnRunner",
     "PromptWorker",
+    "actor_conversation",
 ]

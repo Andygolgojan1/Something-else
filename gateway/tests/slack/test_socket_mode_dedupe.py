@@ -209,13 +209,24 @@ def test_a_handled_event_is_forgotten_after_the_ttl() -> None:
     assert handled.claim("Ev1") is True
 
 
-def test_handled_events_beyond_the_cap_evict_the_oldest() -> None:
-    # Arrange.
-    handled = BoundedHandledSlackEventRepository(max_events=2, now=_Clock())
+def test_the_cap_evicts_only_events_slack_can_no_longer_retry() -> None:
+    # Arrange: a burst of three events inside one retry window, against a cap of two
+    clock = _Clock()
+    handled = BoundedHandledSlackEventRepository(
+        max_events=2, retry_window_seconds=600, ttl_seconds=3600, now=clock
+    )
     for event_id in ("Ev1", "Ev2", "Ev3"):
         handled.claim(event_id)
         handled.confirm(event_id)
 
-    # Act / Assert — the oldest was dropped to stay within the cap; the newest was kept.
+    # Act: a retry of the first inside the window, then a new event after it
+    retried_in_window = handled.claim("Ev1")
+    clock.now = 600
+    handled.claim("Ev4")
+    handled.confirm("Ev4")
+
+    # Assert: the burst kept every event Slack could still retry; once past the
+    # window the oldest made room
+    assert retried_in_window is False
     assert handled.claim("Ev1") is True
-    assert handled.claim("Ev3") is False
+    assert handled.claim("Ev4") is False

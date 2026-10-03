@@ -28,9 +28,12 @@ SLACK_HEARTBEAT_STOP_TIMEOUT_SECONDS = 2.0
 # Socket Mode remembers handled ``event_id`` values in process. Slack's last
 # retry of an event lands minutes after the first delivery, so an hour outlives
 # every retry (and matches the shared store's retention); the size cap bounds
-# memory when a burst of events outruns the clock.
+# memory when a burst of events outruns the clock. The cap never drops an entry
+# younger than the retry window, so a burst can briefly exceed it rather than
+# let a retry of a queued or running event through.
 SLACK_SOCKET_MODE_DEDUP_TTL_SECONDS = 60 * 60
 SLACK_SOCKET_MODE_DEDUP_MAX_EVENTS = 10_000
+SLACK_SOCKET_MODE_DEDUP_RETRY_WINDOW_SECONDS = 10 * 60
 
 # File hosts we may fetch with the bot token. ``url_private`` points at
 # ``files.slack.com``; downloads redirect within Slack's own domains, and the
@@ -52,6 +55,7 @@ __all__ = [
     "SLACK_HEARTBEAT_STOP_TIMEOUT_SECONDS",
     "SLACK_SILO_TEAM_IDS_ENV",
     "SLACK_SOCKET_MODE_DEDUP_MAX_EVENTS",
+    "SLACK_SOCKET_MODE_DEDUP_RETRY_WINDOW_SECONDS",
     "SLACK_SOCKET_MODE_DEDUP_TTL_SECONDS",
     "SLACK_USER_TOKEN_PREFIXES",
     "SLACK_WEBHOOK_URL_ENV",
