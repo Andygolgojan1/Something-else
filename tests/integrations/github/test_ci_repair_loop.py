@@ -6,6 +6,7 @@ import json
 import subprocess
 import sys
 import time
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
@@ -19,7 +20,19 @@ from config.constants.ci_repair import (
     CI_REPAIR_FINISH_RESERVE_SECONDS,
     CI_REPAIR_MAX_ATTEMPTS,
 )
-from infrastructure.scheduling.scheduler.types import Provider, ScheduledTask, TaskKind
+from config.constants.turn_concurrency import OPENSRE_MAX_CONCURRENT_HEAVY_WORK_ENV
+from infrastructure.process.turn_capacity import (
+    HeavyWorkGate,
+    process_heavy_work_gate,
+    reset_process_heavy_work_gate_for_tests,
+)
+from infrastructure.process.turn_capacity import slots as slots_module
+from infrastructure.scheduling.scheduler.types import (
+    Provider,
+    ScheduledTask,
+    TaskKind,
+    TaskReport,
+)
 from integrations.github.client import GitHubApiError
 from integrations.github.tools.ci_repair_loop import schedule, supervisor
 from integrations.github.tools.ci_repair_loop.models import RepairRefused, RepairRun, RepairStatus
@@ -168,6 +181,116 @@ def test_supervisor_stops_active_worker_and_its_separate_session_child(
     expected = RepairStatus.CANCELLED if cancel else RepairStatus.TIMED_OUT
     assert store.get(run.id).status is expected
     assert report.stop_schedule and "Artifacts" in report and "/loops show" in report
+
+
+@pytest.fixture
+def one_heavy_slot(monkeypatch: pytest.MonkeyPatch) -> Iterator[HeavyWorkGate]:
+    """A process heavy-work gate of one slot that a wait notices being stopped at once."""
+    monkeypatch.setenv(OPENSRE_MAX_CONCURRENT_HEAVY_WORK_ENV, "1")
+    monkeypatch.setattr(slots_module, "_STOP_POLL_SECONDS", 0.01)
+    reset_process_heavy_work_gate_for_tests()
+    yield process_heavy_work_gate()
+    reset_process_heavy_work_gate_for_tests()
+
+
+def _slot_free(gate: HeavyWorkGate) -> bool:
+    if gate.try_acquire():
+        gate.release()
+        return True
+    return False
+
+
+def _no_worker(*_args: Any, **_kwargs: Any) -> None:
+    pytest.fail("launched a worker without a heavy-work slot")
+
+
+def test_supervisor_holds_a_heavy_work_slot_for_the_workers_whole_life(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, one_heavy_slot: HeavyWorkGate
+) -> None:
+    """The worker clones and runs Codex in its own process, which no gate there can bound."""
+    # Arrange: a worker that is still running at its first poll and exits at its second.
+    store = RepairStore(tmp_path)
+    run = _run()
+    store.save(run)
+    task = _task(run)
+    held: list[bool] = []
+
+    class _Worker:
+        pid = 0
+
+        def __init__(self) -> None:
+            self.polls = 0
+
+        def poll(self) -> int | None:
+            self.polls += 1
+            held.append(not _slot_free(one_heavy_slot))
+            return None if self.polls == 1 else 0
+
+        def wait(self, timeout: float | None = None) -> int:
+            _ = timeout
+            return 0
+
+    def spawn(*_args: Any, **_kwargs: Any) -> _Worker:
+        held.append(not _slot_free(one_heavy_slot))
+        return _Worker()
+
+    monkeypatch.setattr(supervisor.subprocess, "Popen", spawn)
+    monkeypatch.setattr(supervisor, "get_task", lambda _id: task)
+    monkeypatch.setattr(supervisor, "CI_REPAIR_POLL_SECONDS", 0)
+
+    # Act
+    supervisor._supervise(store, run)
+
+    # Assert: held from launch through every poll, and free once the worker is reaped.
+    assert len(held) >= 3 and all(held)
+    assert _slot_free(one_heavy_slot)
+
+
+def test_a_repair_that_never_gets_a_heavy_work_slot_times_out_without_a_worker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, one_heavy_slot: HeavyWorkGate
+) -> None:
+    # Arrange: the only slot is taken and the run's cutoff is moments away.
+    store = RepairStore(tmp_path)
+    run = _run().model_copy(
+        update={"deadline": time.time() + CI_REPAIR_FINISH_RESERVE_SECONDS + 0.2}
+    )
+    store.save(run)
+    task = _task(run)
+    monkeypatch.setattr(supervisor.subprocess, "Popen", _no_worker)
+    monkeypatch.setattr(supervisor, "get_task", lambda _id: task)
+    assert one_heavy_slot.try_acquire()
+
+    # Act
+    report = supervisor._supervise(store, run)
+
+    # Assert: a terminal, explained outcome instead of an OOM risk.
+    finished = store.get(run.id)
+    assert finished.status is RepairStatus.TIMED_OUT
+    assert "Too many heavy operations" in finished.reason
+    assert isinstance(report, TaskReport) and report.stop_schedule
+    one_heavy_slot.release()
+
+
+def test_stopping_a_repair_that_waits_for_a_heavy_work_slot_cancels_it_without_a_worker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, one_heavy_slot: HeavyWorkGate
+) -> None:
+    # Arrange: the only slot is taken, and the loop is stopped once supervision has begun.
+    store = RepairStore(tmp_path)
+    run = _run().model_copy(
+        update={"deadline": time.time() + CI_REPAIR_FINISH_RESERVE_SECONDS + 30}
+    )
+    store.save(run)
+    checks = iter([False])
+    monkeypatch.setattr(supervisor.subprocess, "Popen", _no_worker)
+    monkeypatch.setattr(supervisor, "_cancelled", lambda _run: next(checks, True))
+    assert one_heavy_slot.try_acquire()
+
+    # Act: without the stop the wait would last the thirty seconds to the cutoff.
+    supervisor._supervise(store, run)
+
+    # Assert
+    assert store.get(run.id).status is RepairStatus.CANCELLED
+    one_heavy_slot.release()
 
 
 def test_schedule_reuses_active_run_instead_of_resetting_deadline(

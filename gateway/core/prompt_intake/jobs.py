@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import contextlib
+import logging
 import threading
 import time
 import uuid
 from collections import deque
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, TypeGuard
 
 from config.constants.gateway import (
+    PROMPT_CONVERSATION_NEW,
     PROMPT_FOREIGN_REFRESH_SECONDS,
     PROMPT_JOB_STALE_SECONDS,
     PROMPT_PROGRESS_KIND_NOTE,
@@ -26,6 +29,8 @@ from config.constants.gateway import (
     PROMPT_RESULT_RETENTION_SECONDS,
 )
 from gateway.core.prompt_intake.job_store import PromptJobStore
+
+logger = logging.getLogger(__name__)
 
 _PLAN_PROGRESS_KINDS = frozenset({PROMPT_PROGRESS_KIND_PLAN, PROMPT_PROGRESS_KIND_PLAN_DONE})
 
@@ -66,8 +71,19 @@ class PromptNotSaved(Exception):
     """The store did not take a new prompt or answer, so it was not accepted."""
 
 
+class CancelRefused(Exception):
+    """The prompt cannot be cancelled; ``code`` says why (``already_settled``, ``not_owned``)."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
 NOT_WAITING = "not_waiting"
 ALREADY_ANSWERED = "already_answered"
+ALREADY_SETTLED = "already_settled"
+#: Another gateway task runs the prompt, so this one cannot stop it.
+NOT_OWNED = "not_owned"
 
 #: Why a prompt failed, as the caller reads it in ``error``.
 ERROR_CREDITS_DENIED = "credits_denied"
@@ -76,6 +92,12 @@ ERROR_TURN_FAILED = "turn_failed"
 ERROR_INVALID_ANSWER = "invalid_answer"
 #: The gateway task running the prompt stopped before it finished; it never will.
 ERROR_INTERRUPTED = "interrupted"
+#: The caller cancelled the prompt before it finished.
+ERROR_CANCELLED = "cancelled"
+#: The named conversation is not one of the actor's.
+ERROR_UNKNOWN_CONVERSATION = "unknown_conversation"
+#: The named conversation waits for the answer to its question; answer that first.
+ERROR_CONVERSATION_WAITING = "conversation_waiting"
 
 #: Shape of a persisted record; a record with another version is not read back.
 _RECORD_VERSION = 1
@@ -90,9 +112,10 @@ _RECORD_TEXT_FIELDS = (
     "parent_id",
     "answered_by",
     "request_id",
+    "conversation",
 )
 #: Failures after which the gateway reopens the question the follow-up answered.
-_REOPENING_ERRORS = frozenset({ERROR_INVALID_ANSWER, ERROR_INTERRUPTED})
+_REOPENING_ERRORS = frozenset({ERROR_INVALID_ANSWER, ERROR_INTERRUPTED, ERROR_CANCELLED})
 #: What another task's newer record may change on a job this task holds.
 _ADOPTED_FIELDS = (
     "state",
@@ -145,6 +168,8 @@ class PromptJob:
     answered_by: str = ""
     #: The caller's id for this submission; a repeat with the same id is the same prompt.
     request_id: str = ""
+    #: The conversation the caller asked for: "" (the actor's own), ``new``, or a session id.
+    conversation: str = ""
     #: Advanced on every persisted change; the newest record of a prompt wins on reload.
     revision: int = 0
     #: When the task that owns the job last saved it; how another task tells it is alive.
@@ -155,7 +180,16 @@ class PromptJob:
         default_factory=lambda: deque(maxlen=PROMPT_PROGRESS_MAX_LINES), repr=False
     )
     progress_count: int = 0
+    #: Set once the caller cancels; a running turn stops at its next cancel check.
+    cancel_requested: bool = False
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    #: The running turn's cancel event, attached by the worker.
+    _cancel_event: threading.Event | None = field(default=None, repr=False)
+    #: A session another prompt was running on when this one resolved to it.
+    _waits_for: str = field(default="", repr=False)
+    #: The actor's own conversation when this prompt was submitted, for a prompt that
+    #: continues it; orders it with prompts that name that conversation.
+    _hosted_hint: str = field(default="", repr=False)
 
     @property
     def settled(self) -> bool:
@@ -167,6 +201,11 @@ class PromptJob:
             record: dict[str, Any] = {"prompt_id": self.id, "state": self.state.value}
             if self.parent_id:
                 record["parent_prompt_id"] = self.parent_id
+            if self.session_id:
+                # What a caller names as ``conversation`` to continue this one.
+                record["conversation_id"] = self.session_id
+            if self.cancel_requested and not self.settled:
+                record["cancel_requested"] = True
             if self.state is PromptState.DONE:
                 record["answer"] = self.answer
             if self.state is PromptState.NEEDS_INPUT:
@@ -264,6 +303,10 @@ class PromptJob:
 class PromptQueue:
     """Bounded FIFO of prompts plus their results, kept for a retention window.
 
+    Several workers may take from it at once. A prompt is handed out only while
+    no other running prompt holds its conversation, so one conversation's prompts
+    run in the order they came and different conversations run side by side.
+
     With a ``store``, a prompt or an answer is accepted only once the store has
     it; later changes are saved there too, and the prompts an earlier task left
     behind are taken back at construction. An unsettled prompt whose owner is
@@ -281,8 +324,12 @@ class PromptQueue:
         store: PromptJobStore | None = None,
         stale_seconds: float = PROMPT_JOB_STALE_SECONDS,
         refresh_seconds: float = PROMPT_FOREIGN_REFRESH_SECONDS,
+        hosted_conversation: Callable[[str], str | None] | None = None,
     ) -> None:
         self._max_queued = max_queued
+        #: Reads an actor's own conversation id, so a prompt continuing it queues
+        #: behind the prompts that named that conversation before it.
+        self._hosted_conversation = hosted_conversation
         self._retention_seconds = retention_seconds
         self._clock = clock
         self._store = store
@@ -303,6 +350,10 @@ class PromptQueue:
         self._in_flight: dict[str, PromptJob] = {}
         #: Settled jobs dropped by retention, kept until the worker retires their sessions.
         self._forgotten: deque[PromptJob] = deque()
+        #: Conversation and session keys held by the running (or deferred) job, by key.
+        self._busy: dict[str, str] = {}
+        #: Each actor's own conversation as running prompts last resolved it.
+        self._hosted: dict[str, str] = {}
         self._lock = threading.Lock()
         self._available = threading.Condition(self._lock)
         if store is not None:
@@ -348,10 +399,18 @@ class PromptQueue:
         self._save(*records)
 
     def submit(
-        self, prompt: str, *, context: dict[str, str], actor: str, request_id: str = ""
+        self,
+        prompt: str,
+        *,
+        context: dict[str, str],
+        actor: str,
+        request_id: str = "",
+        conversation: str = "",
     ) -> PromptJob | None:
         """Queue a prompt; ``None`` when the queue is full.
 
+        ``conversation`` is "" for the actor's own conversation, ``new`` for a
+        separate one, or the session id of a conversation to continue.
         A ``request_id`` the gateway already holds (here or, per the store, in
         another task) returns that prompt instead of queueing a second one, so a
         caller may resend a submission whose response it never got. Raises
@@ -359,6 +418,8 @@ class PromptQueue:
         acknowledged only once a replacement task could still answer it.
         """
         now = self._clock()
+        # Read before taking the lock: it is a file on the deployment's home.
+        hosted_hint = "" if conversation else self._read_hosted_conversation(actor)
         with self._lock:
             self._forget_expired()
             known = self._request_job(request_id, parent_id="")
@@ -373,7 +434,9 @@ class PromptQueue:
                 actor=actor,
                 submitted_at=now,
                 request_id=request_id,
+                conversation=conversation,
             )
+            job._hosted_hint = hosted_hint
             with job._lock:
                 record = job._bump(now)
             self._hold(job)
@@ -467,18 +530,121 @@ class PromptQueue:
         self._save(record)
 
     def take(self, *, timeout_seconds: float) -> PromptJob | None:
-        """Block for the next queued job, marking it running; ``None`` on timeout."""
+        """Block for the oldest queued job whose conversation is free, marking it running.
+
+        The job holds its conversation until it settles. ``None`` on timeout.
+        """
+        deadline = time.monotonic() + timeout_seconds
         with self._lock:
-            if not self._pending:
-                self._available.wait(timeout=timeout_seconds)
-            if not self._pending:
-                return None
-            job = self._pending.popleft()
+            job = self._next_runnable()
+            while job is None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return None
+                self._available.wait(timeout=remaining)
+                job = self._next_runnable()
+            self._pending.remove(job)
+            for key in self._keys(job):
+                self._busy[key] = job.id
+            # The session it waited for is now held like its own; nothing more to wait for.
+            job._waits_for = ""
             with job._lock:
                 job.state = PromptState.RUNNING
                 record = job._bump(self._clock())
         self._save(record)
         return job
+
+    def bind_session(self, job: PromptJob, session_id: str, *, hosted: bool = False) -> bool:
+        """Hold ``session_id`` for the running ``job`` and record it as the job's session.
+
+        ``hosted`` marks it as the actor's own conversation: later prompts that
+        continue it then queue under that session, in order with prompts naming it.
+        False when another running prompt holds that session (a caller named the
+        conversation the actor's own resolved to before this one knew it);
+        :meth:`defer` the job then. The id becomes readable only once it is held,
+        so a caller cannot name it while nothing orders prompts on it.
+        """
+        key = _SESSION_KEY + session_id
+        with self._lock:
+            if self._busy.get(key, job.id) != job.id:
+                return False
+            self._busy[key] = job.id
+            if hosted:
+                self._hosted[job.actor] = session_id
+            with job._lock:
+                job.session_id = session_id
+        return True
+
+    def release_session(self, job: PromptJob, session_id: str) -> None:
+        """Let go of a session ``job`` held and moved off, so prompts waiting on it run."""
+        key = _SESSION_KEY + session_id
+        with self._lock:
+            if self._busy.get(key) == job.id and key != self._conversation_key(job):
+                del self._busy[key]
+                self._available.notify_all()
+
+    def defer(self, job: PromptJob, session_id: str) -> None:
+        """Queue ``job`` again, first in line, until the prompt running on ``session_id`` settles.
+
+        It keeps its own conversation meanwhile, so the prompts behind it stay behind it.
+        A job cancelled while it resolved its session settles ``cancelled`` instead.
+        """
+        record: dict[str, Any] | None = None
+        with self._lock:
+            with job._lock:
+                if not job.cancel_requested:
+                    job.state = PromptState.QUEUED
+                    record = job._bump(self._clock())
+            if record is not None:
+                job._waits_for = _SESSION_KEY + session_id
+                self._pending.appendleft(job)
+        if record is None:
+            self._settle(job, PromptState.FAILED, error_code=ERROR_CANCELLED)
+            return
+        self._save(record)
+
+    def attach_cancel(self, job: PromptJob, event: threading.Event) -> None:
+        """Give ``job`` its running turn's cancel event; a cancel already asked for sets it."""
+        with job._lock:
+            job._cancel_event = event
+            requested = job.cancel_requested
+        if requested:
+            event.set()
+
+    def cancel(self, job: PromptJob) -> None:
+        """Cancel ``job``: a queued prompt settles ``cancelled`` now, a running one is told to stop.
+
+        The running turn stops at its next cancel check and its worker settles it.
+        A queued answer gives its question back, so the caller can answer again.
+        Raises :class:`CancelRefused` for a settled prompt or one another task runs.
+        """
+        now = self._clock()
+        reopened: dict[str, Any] | None = None
+        with self._lock:
+            if job.id in self._foreign:
+                raise CancelRefused(NOT_OWNED)
+            with job._lock:
+                if job.settled:
+                    raise CancelRefused(ALREADY_SETTLED)
+                job.cancel_requested = True
+                running = job.state is PromptState.RUNNING
+                event = job._cancel_event
+            if not running:
+                # Out of the queue under the lock, so no worker takes it before it settles.
+                with contextlib.suppress(ValueError):
+                    self._pending.remove(job)
+                parent = self._jobs.get(job.parent_id) if job.parent_id else None
+                if parent is not None and parent.answered_by == job.id:
+                    self._reopen(parent, now)
+                    with parent._lock:
+                        reopened = parent._bump(now)
+        if running:
+            if event is not None:
+                event.set()
+            return
+        self._settle(job, PromptState.FAILED, error_code=ERROR_CANCELLED)
+        if reopened is not None:
+            self._save(reopened)
 
     def get(self, prompt_id: str) -> PromptJob | None:
         self._refresh_foreign()
@@ -599,6 +765,11 @@ class PromptQueue:
             job.failed_integrations = failed_integrations
             job.finished_at = now
             record = job._bump(now)
+        with self._lock:
+            # A job settled before a worker took it must not hold a queue slot.
+            with contextlib.suppress(ValueError):
+                self._pending.remove(job)
+            self._free_keys(job)
         # The prompt is already accepted: a failed save is logged and the caller still
         # reads the outcome from memory; only a restart before the next save loses it.
         self._save(record)
@@ -611,6 +782,54 @@ class PromptQueue:
         for record in records:
             saved = self._store.save(record) and saved
         return saved
+
+    def _read_hosted_conversation(self, actor: str) -> str:
+        """The actor's own conversation id as stored, or "" when unknown or unreadable."""
+        if self._hosted_conversation is None:
+            return ""
+        try:
+            return self._hosted_conversation(actor) or ""
+        except Exception:
+            logger.warning("[gateway] could not read the actor's conversation", exc_info=True)
+            return ""
+
+    def _conversation_key(self, job: PromptJob) -> str:
+        """The key that orders ``job`` behind earlier prompts of its conversation; caller holds the lock.
+
+        A prompt continuing the actor's own conversation takes that session's key
+        once the session is known, so it and a prompt naming the session queue in
+        the order they came instead of racing.
+        """
+        if job.parent_id:
+            return _SESSION_KEY + job.session_id
+        if job.conversation == PROMPT_CONVERSATION_NEW:
+            return _PROMPT_KEY + job.id
+        if job.conversation:
+            return _SESSION_KEY + job.conversation
+        hosted = self._hosted.get(job.actor) or job._hosted_hint
+        return _SESSION_KEY + hosted if hosted else _ACTOR_KEY + job.actor
+
+    def _keys(self, job: PromptJob) -> tuple[str, ...]:
+        """Every key ``job`` needs free to run; caller holds the lock."""
+        key = self._conversation_key(job)
+        if job._waits_for and job._waits_for != key:
+            return (key, job._waits_for)
+        return (key,)
+
+    def _next_runnable(self) -> PromptJob | None:
+        """The oldest queued job no other job holds a key of; caller holds the lock."""
+        for job in self._pending:
+            if all(self._busy.get(key, job.id) == job.id for key in self._keys(job)):
+                return job
+        return None
+
+    def _free_keys(self, job: PromptJob) -> None:
+        """Let the next prompt of ``job``'s conversations run; caller holds the lock."""
+        held = [key for key, holder in self._busy.items() if holder == job.id]
+        for key in held:
+            del self._busy[key]
+        if held:
+            self._available.notify_all()
 
     def _enqueue(self, job: PromptJob) -> None:
         """Make an accepted job visible to readers and the worker; caller holds the lock."""
@@ -876,6 +1095,12 @@ class PromptQueue:
             self._forgotten.append(self._jobs.pop(job_id))
 
 
+#: Key prefixes that order prompts: two prompts holding one key never run at once.
+_ACTOR_KEY = "actor:"
+_SESSION_KEY = "session:"
+_PROMPT_KEY = "prompt:"
+
+
 def _answer_released(follow_up: PromptJob | None) -> bool:
     """Whether a question's recorded answer no longer holds it.
 
@@ -905,13 +1130,19 @@ def _is_number(value: object) -> TypeGuard[int | float]:
 
 __all__ = [
     "ALREADY_ANSWERED",
+    "ALREADY_SETTLED",
+    "ERROR_CANCELLED",
+    "ERROR_CONVERSATION_WAITING",
     "ERROR_CREDITS_DENIED",
     "ERROR_INTERRUPTED",
     "ERROR_INVALID_ANSWER",
     "ERROR_NOT_ADMITTED",
     "ERROR_TURN_FAILED",
+    "ERROR_UNKNOWN_CONVERSATION",
+    "NOT_OWNED",
     "NOT_WAITING",
     "AnswerRefused",
+    "CancelRefused",
     "PromptJob",
     "PromptNotSaved",
     "PromptQueue",

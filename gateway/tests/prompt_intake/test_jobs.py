@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 import pytest
 
 from config.constants.gateway import (
+    PROMPT_CONVERSATION_NEW,
     PROMPT_JOB_STALE_SECONDS,
     PROMPT_PROGRESS_LINE_MAX_CHARS,
     PROMPT_PROGRESS_PLAN_MAX_CHARS,
@@ -14,10 +16,13 @@ from config.constants.gateway import (
 )
 from gateway.core.prompt_intake import (
     ALREADY_ANSWERED,
+    ALREADY_SETTLED,
+    ERROR_CANCELLED,
     ERROR_INTERRUPTED,
     ERROR_INVALID_ANSWER,
     NOT_WAITING,
     AnswerRefused,
+    CancelRefused,
     JsonlPromptJobStore,
     PromptJob,
     PromptQueue,
@@ -455,3 +460,140 @@ def test_a_question_reopened_by_another_task_takes_an_answer_before_that_task_sa
     assert seen_failed is not None and seen_failed.error_code == ERROR_INVALID_ANSWER
     assert accepted is not None and accepted.parent_id == asked.id
     assert late.value.code == ALREADY_ANSWERED
+
+
+def test_one_conversation_runs_in_order_while_other_conversations_run_beside_it() -> None:
+    # Arrange: two prompts on alice's own conversation, one on bob's, one new conversation
+    queue = PromptQueue(clock=_Clock().read)
+    first = queue.submit("first", context={}, actor="alice")
+    second = queue.submit("second", context={}, actor="alice")
+    other_actor = queue.submit("other actor", context={}, actor="bob")
+    separate = queue.submit(
+        "separate", context={}, actor="alice", conversation=PROMPT_CONVERSATION_NEW
+    )
+    assert first and second and other_actor and separate
+
+    # Act
+    taken = [queue.take(timeout_seconds=0.01) for _ in range(4)]
+    waiting = second.state
+    queue.finish(first, "done")
+    after_first = queue.take(timeout_seconds=0.01)
+
+    # Assert: alice's second prompt waits for her first; nothing else waits for anything
+    assert taken == [first, other_actor, separate, None]
+    assert waiting is PromptState.QUEUED
+    assert after_first is second
+
+
+def test_a_prompt_whose_session_is_busy_waits_first_in_line_and_keeps_its_conversation() -> None:
+    # Arrange: a prompt that named alice's conversation runs on it
+    queue = PromptQueue(clock=_Clock().read)
+    named = queue.submit("named", context={}, actor="alice", conversation=_SESSION)
+    own = queue.submit("own", context={}, actor="alice")
+    later = queue.submit("later", context={}, actor="alice")
+    assert named and own and later
+    assert queue.take(timeout_seconds=0.01) is named
+    assert queue.take(timeout_seconds=0.01) is own
+
+    # Act: alice's own conversation resolves to the session the named prompt holds
+    bound = queue.bind_session(own, _SESSION)
+    queue.defer(own, _SESSION)
+    while_named_runs = queue.take(timeout_seconds=0.01)
+    queue.finish(named, "done")
+    after_named = queue.take(timeout_seconds=0.01)
+
+    # Assert: it neither ran beside the named prompt nor let the later prompt pass it
+    assert bound is False and own.session_id == ""
+    assert while_named_runs is None and later.state is PromptState.QUEUED
+    assert after_named is own and queue.bind_session(own, _SESSION)
+    assert own.session_id == _SESSION
+
+
+def test_a_prompt_continuing_the_actors_conversation_keeps_its_place_before_one_naming_it() -> None:
+    # Arrange: alice's own conversation is _SESSION; she continues it, then names it
+    queue = PromptQueue(clock=_Clock().read, hosted_conversation={"alice": _SESSION}.get)
+    continuing = queue.submit("continue", context={}, actor="alice")
+    naming = queue.submit("named", context={}, actor="alice", conversation=_SESSION)
+    assert continuing is not None and naming is not None
+
+    # Act
+    first = queue.take(timeout_seconds=0.01)
+    while_first_runs = queue.take(timeout_seconds=0.01)
+    queue.finish(continuing, "done")
+    second = queue.take(timeout_seconds=0.01)
+
+    # Assert: they never ran together, and in the order they came
+    assert first is continuing and while_first_runs is None
+    assert second is naming
+
+
+def test_once_a_prompt_resolves_the_actors_conversation_later_ones_queue_behind_it() -> None:
+    # Arrange: nothing told the queue alice's conversation before her first prompt ran
+    queue = PromptQueue(clock=_Clock().read)
+    first = queue.submit("first", context={}, actor="alice")
+    assert first is not None and queue.take(timeout_seconds=0.01) is first
+    assert queue.bind_session(first, _SESSION, hosted=True)
+    continuing = queue.submit("continue", context={}, actor="alice")
+    naming = queue.submit("named", context={}, actor="alice", conversation=_SESSION)
+    assert continuing is not None and naming is not None
+
+    # Act
+    while_first_runs = queue.take(timeout_seconds=0.01)
+    queue.finish(first, "done")
+    taken = [queue.take(timeout_seconds=0.01), queue.take(timeout_seconds=0.01)]
+
+    # Assert: both wait for the session, then run one at a time in submission order
+    assert while_first_runs is None
+    assert taken == [continuing, None]
+
+
+def test_cancel_settles_a_queued_prompt_stops_a_running_one_and_refuses_a_settled_one() -> None:
+    # Arrange
+    queue = PromptQueue(clock=_Clock().read)
+    running = queue.submit("running", context={}, actor="a")
+    queued = queue.submit("queued", context={}, actor="a")
+    assert running is not None and queued is not None
+    assert queue.take(timeout_seconds=0.01) is running
+    turn_cancel = threading.Event()
+    queue.attach_cancel(running, turn_cancel)
+
+    # Act
+    queue.cancel(queued)
+    queue.cancel(running)
+    with pytest.raises(CancelRefused) as settled:
+        queue.cancel(queued)
+
+    # Assert: the queued prompt is gone from the queue; the running turn is told to stop
+    assert (queued.state, queued.error_code) == (PromptState.FAILED, ERROR_CANCELLED)
+    assert queue.queued_count() == 0
+    assert turn_cancel.is_set() and running.state is PromptState.RUNNING
+    assert running.view()["cancel_requested"] is True
+    assert settled.value.code == ALREADY_SETTLED
+
+
+def test_a_cancel_before_the_turn_starts_reaches_the_turn_and_a_cancelled_answer_reopens() -> None:
+    # Arrange: a prompt taken but not yet started, and a question with a queued answer
+    queue = PromptQueue(clock=_Clock().read)
+    starting = queue.submit("starting", context={}, actor="a")
+    asked = queue.submit("asked", context={}, actor="b")
+    assert starting is not None and asked is not None
+    assert queue.take(timeout_seconds=0.01) is starting
+    asked.session_id = _SESSION
+    queue.needs_input(asked, "Which branch?")
+    answer = queue.answer(asked, "main")
+    assert answer is not None
+
+    # Act
+    queue.cancel(starting)
+    turn_cancel = threading.Event()
+    queue.attach_cancel(starting, turn_cancel)
+    queue.cancel(answer)
+    again = queue.answer(asked, "release")
+
+    # Assert
+    assert turn_cancel.is_set()
+    assert answer.error_code == ERROR_CANCELLED
+    assert again is not None and asked.answered_by == again.id
+
+
+_SESSION = "0b6f2c1e-8d4a-4c55-9a77-2f1c3e5d7a90"

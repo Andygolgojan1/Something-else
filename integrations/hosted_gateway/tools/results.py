@@ -9,8 +9,10 @@ from config.constants.hosted_gateway import HOSTED_GATEWAY_SETTINGS_PATH
 from core.agent_harness.tools import capability_available_from_sources
 from core.tool import report_run_error
 from integrations.hosted_gateway.client import (
+    ERR_ALREADY_SETTLED,
     ERR_GATEWAY_UNAVAILABLE,
     ERR_INSECURE_APP_URL,
+    ERR_NOT_OWNED,
     ERR_NOT_PROVISIONED,
     ERR_NOT_RUNNING,
     ERR_NOT_SIGNED_IN,
@@ -40,6 +42,11 @@ _FAILURE_TEXT = {
     ERR_NOT_RUNNING: "Your organization's hosted gateway is not running, so it cannot take a prompt.",
     ERR_UNKNOWN_PROMPT: "The hosted gateway no longer holds that prompt; send it again.",
     ERR_PROMPT_TOO_LARGE: "That prompt is too long for the hosted gateway; shorten it.",
+    ERR_ALREADY_SETTLED: "That prompt already finished, so there is nothing to cancel.",
+    ERR_NOT_OWNED: (
+        "The hosted gateway is being replaced and the outgoing task still runs that prompt; "
+        "try cancelling again in a minute."
+    ),
     ERR_UNREACHABLE: (
         "The OpenSRE app did not answer (the connection failed or timed out). Check this "
         "machine's network connection."
