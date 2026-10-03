@@ -16,6 +16,7 @@ from dataclasses import replace
 from typing import Any
 
 from config.constants.slash_commands import QUEUED_COMMAND_KEY
+from config.constants.tooling import ToolBlockedBy
 from core.tool.execution import (
     BeforeToolCallResult,
     ToolExecutionHooks,
@@ -52,7 +53,12 @@ def with_menu_turn_end(
             return decision
         if getattr(session, "pending_user_choice", None) is None:
             return decision
-        return BeforeToolCallResult(blocked=True, terminate=True, reason=_MENU_WAITING)
+        return BeforeToolCallResult(
+            blocked=True,
+            terminate=True,
+            reason=_MENU_WAITING,
+            metadata={ToolBlockedBy.MENU_PENDING: True},
+        )
 
     def after(
         request: ToolExecutionRequest, result: ToolExecutionResult

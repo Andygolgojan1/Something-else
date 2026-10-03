@@ -5,11 +5,13 @@ from __future__ import annotations
 import io
 import sys
 from collections.abc import Callable
+from dataclasses import replace
 
 import pytest
 from rich.console import Console
 
 import surfaces.interactive_shell.command_registry.choice_prompt as choice_prompt
+from config.constants.ask_user import AskUserReason
 from config.constants.skills import (
     AUTOMATION_GROUP_OPTION,
     AUTOMATION_MENU_TITLE,
@@ -206,7 +208,7 @@ def test_selection_analytics_links_rendered_prompt_to_chosen_option(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = Session()
-    session.pending_user_choice = _CHOICE
+    session.pending_user_choice = replace(_CHOICE, reason_code=AskUserReason.CHOICE)
     console, _buf = _console()
     rendered: list[dict[str, object]] = []
     answered: list[dict[str, object]] = []
@@ -236,6 +238,7 @@ def test_selection_analytics_links_rendered_prompt_to_chosen_option(
 
     assert rendered[0]["interaction_id"] == answered[0]["interaction_id"]
     assert rendered[0]["render_mode"] == "picker"
+    assert rendered[0]["reason_code"] == "choice"
     assert answered[0]["selected_option_indices"] == [(1,)]
     assert answered[0]["custom_answers"] == [None]
     assert answered[0]["disposition"] == "agent_answer"

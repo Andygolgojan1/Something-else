@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from config.constants.ask_user import AskUserReason
 from core.agent_harness.spi.handoff import AskUserQuestion, parse_ask_user_answers, question_key
 from core.agent_harness.spi.session_state import (
     PendingUserChoice,
@@ -220,7 +221,17 @@ def _already_answered_error(answered: dict[str, str]) -> str:
     )
 
 
-def execute_ask_user_choice_tool(args: dict[str, Any], ctx: ActionToolScope) -> dict[str, Any]:
+def execute_ask_user_choice_tool(
+    args: dict[str, Any],
+    ctx: ActionToolScope,
+    *,
+    reason_code: AskUserReason = AskUserReason.CHOICE,
+) -> dict[str, Any]:
+    """Queue the menu ``args`` describe; ``reason_code`` says who opened it.
+
+    The model's tool call keeps the default ``choice``; a host that opens a menu
+    through this executor passes its own reason.
+    """
     questions, questions_error = _parse_questions(args.get("questions"))
     if questions_error is not None:
         return {"ok": False, "error": questions_error}
@@ -278,6 +289,7 @@ def execute_ask_user_choice_tool(args: dict[str, Any], ctx: ActionToolScope) -> 
             title=header,
             options=questions[0].options,
             questions=tuple(questions),
+            reason_code=reason_code,
         )
         queued = _QUEUED_BATCH_INSTRUCTION
         summary = f"Ask User menu queued: {len(questions)} questions"
@@ -293,6 +305,7 @@ def execute_ask_user_choice_tool(args: dict[str, Any], ctx: ActionToolScope) -> 
             multi_select=multi_select,
             note=strip_terminal_controls(str(args.get("note", ""))).strip(),
             custom_answer=_parse_bool(args.get("allow_custom"), default=True),
+            reason_code=reason_code,
         )
         queued = _QUEUED_INSTRUCTION
         summary = f"selection menu queued: {title}"
