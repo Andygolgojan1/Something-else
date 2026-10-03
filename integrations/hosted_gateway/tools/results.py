@@ -46,8 +46,7 @@ _FAILURE_TEXT = {
     ),
     ERR_GATEWAY_UNAVAILABLE: (
         "Your organization's hosted gateway is not answering right now; it may still be "
-        "starting after a restart. Try again in a minute. A restart drops the prompts the "
-        "gateway held, so a prompt sent before one has to be sent again."
+        "starting after a restart. Try again in a minute."
     ),
     ERR_INSECURE_APP_URL: (
         "The OpenSRE app URL of this sign-in is not https, so the account token was not "
@@ -71,6 +70,7 @@ _CAUSE_TEXT = {
     "prompt_intake_unavailable": (
         "The gateway process is running but is not accepting prompts yet. Try again in a minute."
     ),
+    "prompt_store_unavailable": "The hosted gateway could not save the request, so it did not take it.",
     "GATEWAY_CAPACITY_EXCEEDED": (
         "The gateway fleet has reached its limit of active organizations, so this request "
         "was refused."

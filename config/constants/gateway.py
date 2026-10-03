@@ -67,6 +67,17 @@ PROMPT_PROGRESS_KINDS: frozenset[str] = frozenset(
 )
 #: The prompt worker ends after its current job; it gets this slice of the stop budget.
 PROMPT_WORKER_STOP_TIMEOUT_SECONDS = 2.0
+#: Remote prompt records, relative to the deployment's home (the org mount on a silo),
+#: so a replacement task still answers prompts its predecessor accepted.
+PROMPT_JOBS_FILE = "gateway/prompt-jobs.jsonl"
+#: How long one prompt-record write waits for another writer of the same file.
+PROMPT_JOBS_LOCK_TIMEOUT_SECONDS = 10.0
+#: How often a task re-saves the unsettled prompts it owns, so another task sees it alive.
+PROMPT_HEARTBEAT_SECONDS = 15.0
+#: An unsettled prompt whose owner has not written it for this long belongs to a dead task.
+PROMPT_JOB_STALE_SECONDS = 60.0
+#: Least time between two re-reads of prompts another task owns.
+PROMPT_FOREIGN_REFRESH_SECONDS = 2.0
 
 #: Postgres DSN for the gateway's shared repositories; unset means process-local storage.
 DATABASE_URL_ENV = "DATABASE_URL"
@@ -91,6 +102,11 @@ __all__ = [
     "PROMPT_CONTEXT_MAX_ITEMS",
     "PROMPT_CONTEXT_VALUE_MAX_CHARS",
     "PROMPT_DEFAULT_ACTOR",
+    "PROMPT_FOREIGN_REFRESH_SECONDS",
+    "PROMPT_HEARTBEAT_SECONDS",
+    "PROMPT_JOB_STALE_SECONDS",
+    "PROMPT_JOBS_FILE",
+    "PROMPT_JOBS_LOCK_TIMEOUT_SECONDS",
     "PROMPT_MAX_CHARS",
     "PROMPT_PROGRESS_KIND_NOTE",
     "PROMPT_PROGRESS_KIND_PLAN",

@@ -119,6 +119,7 @@ class _App:
     def __init__(self, states: list[PromptRecord | HostedGatewayError]) -> None:
         self._states = list(states)
         self.sent: list[tuple[str, dict[str, str]]] = []
+        self.sent_request_ids: list[str] = []
         self.polled: list[str] = []
         self.answered: list[tuple[str, str]] = []
 
@@ -133,15 +134,19 @@ class _App:
     ) -> None:
         return None
 
-    def send_prompt(self, prompt: str, *, context: dict[str, str]) -> PromptRecord:
+    def send_prompt(
+        self, prompt: str, *, context: dict[str, str], request_id: str = ""
+    ) -> PromptRecord:
         self.sent.append((prompt, context))
+        self.sent_request_ids.append(request_id)
         return self._next()
 
     def prompt_result(self, prompt_id: str) -> PromptRecord:
         self.polled.append(prompt_id)
         return self._next()
 
-    def answer_prompt(self, prompt_id: str, answer: str) -> PromptRecord:
+    def answer_prompt(self, prompt_id: str, answer: str, *, request_id: str = "") -> PromptRecord:
+        _ = request_id  # the fake keeps no prompts to deduplicate
         self.answered.append((prompt_id, answer))
         return self._next()
 
@@ -349,6 +354,58 @@ def test_a_full_prompt_queue_is_not_described_as_a_restart(monkeypatch: pytest.M
     assert "may still be starting" not in out["response_text"]
 
 
+def test_a_lost_submission_is_resent_under_its_request_id_and_a_known_prompt_by_its_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Retry advice must be something the caller can follow without running the work twice."""
+    # Arrange: the gateway does not answer a fresh submission, then a read of a known prompt
+    lost = HostedGatewayError(ERR_GATEWAY_UNAVAILABLE, HTTPStatus.GATEWAY_TIMEOUT)
+    app = _App([lost, lost, PromptRecord(_ID, "done", answer="ran once")])
+    _signed_in_with(monkeypatch, app)
+
+    # Act: the failed send, a read by id that fails too, then the resend the advice names
+    fresh = ask_hosted_gateway(prompt="delegate the demo")
+    known = ask_hosted_gateway(prompt_id=_ID)
+    resent = ask_hosted_gateway(prompt="delegate the demo", request_id=fresh["request_id"])
+
+    # Assert: the fresh failure names no prompt id but a request id the resend reuses
+    assert "will not run twice" in fresh["response_text"] and "prompt_id" not in fresh
+    assert fresh["request_id"] in fresh["instructions"]
+    assert app.sent_request_ids == [fresh["request_id"], fresh["request_id"]]
+    assert resent["response_text"] == "ran once"
+    assert f"Ask about prompt {_ID} again" in known["response_text"]
+    assert known["prompt_id"] == _ID and "request_id" not in known
+
+
+def test_an_answer_whose_response_was_lost_is_followed_not_sent_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Arrange: the question already took an answer; the user's turn still carries it
+    question = PromptQuestion("Which branch?", ("main", "release"))
+    follow_up_id = "p_" + "f" * 32
+    asked = PromptRecord(
+        _ID,
+        "needs_input",
+        question="Which branch?",
+        choice=PromptChoice("Which branch?", (question,)),
+        answered_by=follow_up_id,
+    )
+    follow_up = PromptRecord(follow_up_id, "done", answer="pushed", parent_prompt_id=_ID)
+    app = _App([asked, follow_up])
+    _signed_in_with(monkeypatch, app)
+    turn = format_ask_user_answers(
+        (AskUserQuestion(label="", title="Which branch?", options=("main", "release")),),
+        ("main",),
+    )
+
+    # Act
+    out = ask_hosted_gateway(prompt_id=_ID, context=_tool_context(SessionCore(), turn))
+
+    # Assert: the accepted answer's result, and no second answer
+    assert app.answered == [] and app.polled == [_ID, follow_up_id]
+    assert out["prompt_id"] == follow_up_id and out["response_text"] == "pushed"
+
+
 def test_free_text_from_the_app_is_not_shown_to_the_user(monkeypatch: pytest.MonkeyPatch) -> None:
     # Arrange
     leaked = f"connection refused for {_TOKEN}"
@@ -509,7 +566,7 @@ def test_the_tool_is_external_takes_no_identifier_and_refuses_an_empty_request()
 
     # Assert
     assert tool.side_effect_level == "external"
-    assert set(tool.input_schema["properties"]) == {"prompt", "facts", "prompt_id"}
+    assert set(tool.input_schema["properties"]) == {"prompt", "facts", "prompt_id", "request_id"}
     assert tool.accepts_runtime_context is True
     assert out["success"] is False and "Give the hosted gateway a prompt" in out["response_text"]
 
@@ -868,10 +925,18 @@ def test_a_busy_gateway_is_explained_in_plain_words(monkeypatch: pytest.MonkeyPa
     assert "not_admitted" not in out["response_text"]
 
 
+@pytest.mark.parametrize(
+    ("error", "lead"),
+    [
+        ("invalid_answer", "That answer did not match the question's options"),
+        ("interrupted", "The hosted gateway restarted before it used that answer"),
+    ],
+)
 def test_a_rejected_answer_reopens_the_original_question_in_the_shell(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, error: str, lead: str
 ) -> None:
-    # Arrange: the parent asks; the user's pick fits no option; the gateway reopens the parent
+    # Arrange: the parent asks; the gateway cannot use the answer (it fits no option, or the
+    # task was replaced mid-turn) and reopens the parent
     question = PromptQuestion("Which branch?", ("main", "release"))
     asked = PromptRecord(
         _ID,
@@ -879,7 +944,7 @@ def test_a_rejected_answer_reopens_the_original_question_in_the_shell(
         question="Which branch?",
         choice=PromptChoice("Which branch?", (question,)),
     )
-    rejected = PromptRecord("p_" + "d" * 32, "failed", error="invalid_answer")
+    rejected = PromptRecord("p_" + "d" * 32, "failed", error=error)
     app = _App([asked, rejected, asked])
     _signed_in_with(monkeypatch, app)
     turn = format_ask_user_answers(
@@ -894,7 +959,7 @@ def test_a_rejected_answer_reopens_the_original_question_in_the_shell(
     # Assert: the menu is parked again on the original prompt, with a one-line reason first
     assert app.answered == [(_ID, "develop")] and app.polled == [_ID, _ID]
     assert out["state"] == "needs_input" and out["prompt_id"] == _ID
-    assert out["response_text"].startswith("That answer did not match the question's options")
+    assert out["response_text"].startswith(lead)
     parked = session.pending_user_choice
     assert parked is not None and parked.options == ("main", "release")
 
