@@ -1,9 +1,10 @@
-"""Tool-execution wraps for task-plan evidence, the plan guard, and host advance.
+"""Tool-execution wraps for task-plan evidence, the plan guards, and host advance.
 
-Rules live in ``task_plan.evidence``, ``task_plan.required`` and
-``task_plan.advance``. This module records returns, refuses the next work call
-when no plan is open, and moves the plan forward before the first work call
-of a batch that carries no ``update_plan``.
+Rules live in ``task_plan.evidence``, ``task_plan.required``,
+``task_plan.blocked_menu`` and ``task_plan.advance``. This module records
+returns, refuses the next work call when no plan is open, refuses a menu that
+is not about a step blocked this turn, and moves the plan forward before the
+first work call of a batch that carries no ``update_plan``.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from typing import Any
 
 from config.constants.tooling import ToolBlockedBy
 from core.agent_harness.task_plan.advance import auto_advance_task_plan
+from core.agent_harness.task_plan.blocked_menu import blocked_step_menu_refusal
 from core.agent_harness.task_plan.evidence import (
     UPDATE_PLAN_TOOL,
     is_plan_work_name,
@@ -31,6 +33,9 @@ from core.tool.execution import (
     tool_role,
 )
 
+#: The model's menu; the blocked-step rule refuses no other call.
+_ASK_USER_CHOICE_TOOL = "ask_user_choice"
+
 
 def with_task_plan_hooks(
     base: ToolExecutionHooks | None,
@@ -39,12 +44,13 @@ def with_task_plan_hooks(
     turn_user_message: str = "",
     answer_continues: bool = False,
 ) -> ToolExecutionHooks:
-    """Wrap ``base`` so plan evidence is recorded, the plan guard can refuse a call,
+    """Wrap ``base`` so plan evidence is recorded, the plan guards can refuse a call,
     and the plan advances when the next step's tool is called.
 
     Advancement is armed once per provider batch (``before_tool_batch``) and
-    fires at the first work call the guards let through, so a refused call or
-    a batch that never reaches execution moves nothing. A batch carrying
+    fires at the first work call the guards let through, so a refused call —
+    a menu that is not about a step blocked this turn included — or a batch
+    that never reaches execution moves nothing. A batch carrying
     ``update_plan`` is the model's own write and is never advanced.
     ``turn_user_message`` lets an Ask User answer earn the step it settles.
     ``answer_continues`` (computed once at turn start) says the turn answers
@@ -80,6 +86,16 @@ def with_task_plan_hooks(
                 reason=PLAN_REQUIRED_REASON,
                 metadata={ToolBlockedBy.PLAN_REQUIRED: True},
             )
+        # Before the advance: the menu counts as step work, so a refused one
+        # must not move the plan.
+        if request.tool_call.name == _ASK_USER_CHOICE_TOOL:
+            refusal = blocked_step_menu_refusal(session, request.arguments)
+            if refusal is not None:
+                return BeforeToolCallResult(
+                    blocked=True,
+                    reason=refusal,
+                    metadata={ToolBlockedBy.BLOCKED_STEP_MENU: True},
+                )
         if (
             advance_armed
             and role is not ToolRole.BOOKKEEPING

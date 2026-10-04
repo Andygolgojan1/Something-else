@@ -7,6 +7,7 @@ from typing import Any
 
 from rich.console import Console
 
+from core.agent_harness.session.pending_choice import AskUserQuestion, format_ask_user_answers
 from core.agent_harness.task_plan.evidence import record_plan_evidence
 from core.agent_harness.task_plan.plan import (
     PlanStepStatus,
@@ -477,3 +478,38 @@ def test_update_plan_records_the_steps_it_newly_blocked() -> None:
     assert result["ok"] is True
     assert blocked_this_turn(session) == ("Inspect repository",)
     assert "ask_user_choice" in result["instruction"]
+
+
+def test_only_a_write_that_newly_blocks_a_step_outside_an_answer_asks_about_it() -> None:
+    """The ask used to ride on every write while a step stayed blocked.
+
+    Its "options for what would unblock it" led the model to invent an option
+    no tool could carry out.
+    """
+    steps = ("Seed the demo repository", "Run the repair", "Report the outcome")
+    answer = format_ask_user_answers(
+        (AskUserQuestion(label="Repo", title="Which repository?", options=("a", "b")),), ("a",)
+    )
+
+    def write(session: Session, *statuses: str, message: str = "") -> str:
+        console = Console(file=io.StringIO(), force_terminal=False, highlight=False)
+        ctx = ActionToolScope(session=session, console=console, turn_user_message=message)
+        plan = [{"step": s, "status": st} for s, st in zip(steps, statuses, strict=True)]
+        result = execute_update_plan_tool({"plan": plan, "explanation": "Refused."}, ctx)
+        assert result["ok"] is True
+        return str(result["instruction"])
+
+    # Act: the write that blocks the step, a later write that keeps it blocked,
+    # and a write that blocks a step on the turn carrying the user's answer.
+    session = Session()
+    blocking = write(session, "in_progress", "blocked", "pending")
+    staying = write(_worked(session), "completed", "blocked", "in_progress")
+    on_answer = write(Session(), "in_progress", "blocked", "pending", message=answer)
+
+    # Assert: every write with a blocked step says it stays blocked; only the
+    # first asks for the menu, which names the step in blocked_step.
+    for instruction in (blocking, staying, on_answer):
+        assert "Blocked steps stay blocked" in instruction
+    assert "ask_user_choice with blocked_step" in blocking
+    assert "ask_user_choice" not in staying
+    assert "ask_user_choice" not in on_answer

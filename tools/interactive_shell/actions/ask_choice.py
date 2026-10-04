@@ -349,14 +349,18 @@ def run_ask_user_choice(
     multi_select: bool = False,
     note: str = "",
     allow_custom: bool = True,
+    blocked_step: str = "",
     context: Any,
 ) -> dict[str, Any]:
+    # ``blocked_step`` is read by the plan hooks before this runs; it is
+    # accepted here because the registry passes every public argument.
     payload: dict[str, Any] = {
         "title": title,
         "options": options or [],
         "multi_select": multi_select,
         "note": note,
         "allow_custom": allow_custom,
+        "blocked_step": blocked_step,
     }
     if questions is not None:
         payload["questions"] = questions
@@ -452,6 +456,12 @@ ask_user_choice_tool = RegisteredTool(
                     "Default true."
                 ),
             },
+            "blocked_step": string_property(
+                description=(
+                    "When a plan step was blocked this turn, its exact text. A menu "
+                    "opened then must be about that blocker."
+                ),
+            ),
         },
         required=(),
     ),

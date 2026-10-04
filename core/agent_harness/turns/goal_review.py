@@ -173,11 +173,12 @@ _PLAN_INCOMPLETE_NUDGE = (
 )
 _BLOCKED_NEEDS_USER_NUDGE = (
     "A step was marked blocked this turn. A blocked step is resolved with the "
-    "user, not skipped: call ask_user_choice naming the step and its blocker, "
-    "with options for what would unblock it (running the command they ruled "
-    "out, a value or permission you need) and one to leave it blocked. When "
-    "they unblock it, set that same step in_progress with update_plan — not a "
-    "renamed or duplicated copy — and do the work."
+    "user, not skipped: call ask_user_choice with blocked_step set to that "
+    "step's exact text, naming its blocker, with options a tool here can carry "
+    "out (running the command they ruled out, a value or permission you need) "
+    "and one to leave it blocked. When they unblock it, set that same step "
+    "in_progress with update_plan — not a renamed or duplicated copy — and do "
+    "the work."
 )
 _SKILL_LOAD_ONLY_NUDGE = (
     "The user picked this demo, and this turn only loaded its skill. "

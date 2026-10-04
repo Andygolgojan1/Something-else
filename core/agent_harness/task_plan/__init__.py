@@ -14,6 +14,7 @@ Leaves:
 * :mod:`evidence` — work-return counters for a turn
 * :mod:`required` — second work tool needs an open plan
 * :mod:`conclusion` — whether the plan still blocks ending the turn
+* :mod:`blocked_menu` — after a step is blocked, only a menu about it may open
 * :mod:`update_plan_policy` — Ask User / plan-only latch
 * :mod:`persist` — flush / restore
 * :mod:`progress` — plain-text ``Plan · n/m`` checklist

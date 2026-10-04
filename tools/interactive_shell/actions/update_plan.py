@@ -68,6 +68,7 @@ def execute_update_plan_tool(args: dict[str, Any], ctx: ActionToolScope) -> dict
         plan,
         plan_only=plan_only_requested,
         ask_user_turn=bool(parse_ask_user_answers(turn_text)),
+        newly_blocked=bool(checked.newly_blocked),
         demoted=checked.demoted,
         closed_unverified=checked.closed_unverified,
     )

@@ -275,7 +275,9 @@ model:
 - A step newly marked `blocked` does not end the turn: the conclusion is
   rejected until the model has asked the user how to resolve it
   (`core/agent_harness/task_plan/conclusion.py`), and the "Plan ended"
-  breakdown is not printed while that question is queued.
+  breakdown is not printed while that question is queued. That question names
+  the step in `blocked_step`; any other menu the model opens on that turn is
+  refused (`core/agent_harness/task_plan/blocked_menu.py`).
 - The onboarding menu's answer turn that loads the chosen demo skill and
   does nothing else is rejected once, with a nudge to write the plan and run
   the first step; the first demo stalled that way live.

@@ -203,11 +203,13 @@ def test_missing_gateway_skill_reports_blocker_before_recovery_menu(
             ),
             tool_response("update_plan", blocked),
             no_tool_response(report),
+            # A menu after a blocked step must name it, or the host refuses it.
             tool_response(
                 "ask_user_choice",
                 {
                     "title": "Remote Demo Blocked",
                     "options": ["Retry after gateway update", "Leave the demo blocked"],
+                    "blocked_step": "Delegate",
                 },
             ),
         ],

@@ -103,7 +103,11 @@ touches `blocked` steps, and a host advance counts as the turn working the
 plan for the stop gates (`goal_review.py`). A step newly marked
 `blocked` is resolved with the user, not skipped: the conclusion is rejected
 until `ask_user_choice`
-is queued (`task_plan/conclusion.py`, gate in `turns/goal_review.py`). The
+is queued (`task_plan/conclusion.py`, gate in `turns/goal_review.py`). On
+that turn the model's menu must be about the blocked step: an
+`ask_user_choice` whose `blocked_step` names no step blocked this turn is
+refused before the plan advances (`task_plan/blocked_menu.py`, checked in
+`turns/plan_hooks.py`); host-opened menus never pass that hook. The
 onboarding menu's answer turn that only loaded the chosen demo skill is
 rejected once, with a nudge to write the plan and run its first step (same
 files). A work tool that failed (`ok: false`, nonzero shell exit) is not
