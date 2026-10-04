@@ -488,6 +488,7 @@ EXPORTS: dict[str, str] = {
     "OPENSRE_GATEWAY_HOST_SCHEDULER_ENV": "scheduler",
     "OPENSRE_SCHEDULER_BUILD_ENV": "scheduler",
     "SCHEDULER_MISSED_FIRE_GRACE_SECONDS": "scheduler",
+    "SCHEDULED_TASK_TRACE_KEY": "scheduler",
     # secrets
     "CREDENTIAL_FALLBACK_FILENAME": "secrets",
     "OPENSRE_DISABLE_KEYRING_ENV": "secrets",
@@ -559,6 +560,8 @@ EXPORTS: dict[str, str] = {
     "CREDENTIALS_BOOTSTRAP_SECRET_ARN_ENV": "tenancy",
     "INTEGRATIONS_SECRET_ARN_ENV": "tenancy",
     "INTEGRATIONS_STORE_PATH_ENV": "tenancy",
+    "TURN_ACTOR_ID_ENV": "tenancy",
+    "TURN_ORGANIZATION_ID_ENV": "tenancy",
     # tooling
     "CI_ANALYSIS_PREFETCH_MAX_AGE_SECONDS": "tooling",
     "DEFAULT_APPROVAL_EXPIRY_SECONDS": "tooling",

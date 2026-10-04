@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from infrastructure.scheduling.scheduler.claim_lease import (
     ClaimOwnership,
@@ -39,6 +40,9 @@ from infrastructure.scheduling.scheduler.types import (
     TaskRun,
     TaskStatus,
 )
+
+if TYPE_CHECKING:
+    from infrastructure.analytics.provider import Properties
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +116,8 @@ def _skip_cancelled_schedule(
         status=TaskStatus.SKIPPED,
         extra={"reason": reason, "in_flight_cancel": True},
     )
-    complete_run(claim, status=TaskStatus.SKIPPED, error=reason)
+    if complete_run(claim, status=TaskStatus.SKIPPED, error=reason):
+        _emit_analytics(claim, task, TaskStatus.SKIPPED, error=reason)
     return True
 
 
@@ -131,7 +136,7 @@ def _execute_claimed_task(
         fire_time=fire_time,
         status=TaskStatus.RUNNING,
     )
-    _emit_analytics_started(task)
+    _emit_analytics_started(claim, task)
 
     if _skip_cancelled_schedule(claim, task, fire_time):
         return False
@@ -220,7 +225,7 @@ def _execute_claimed_task(
             provider=_run_provider_label(task),
         ):
             return False
-        _emit_analytics(task, work_status)
+        _emit_analytics(claim, task, work_status)
         logger.info("Task %s produced no message; delivery skipped", task.id)
         record_scheduler_execution_operation(
             "scheduled_task_execution_completed",
@@ -247,14 +252,15 @@ def _execute_claimed_task(
         if any(outcome.ok for outcome in result.outcomes):
             # A destination may already have the message. Keep that history
             # instead of replacing the row with an empty skipped run.
-            complete_run(
+            if complete_run(
                 claim,
                 status=TaskStatus.SKIPPED,
                 posted_message_id=result.message_id(),
                 error=reason,
                 provider=_run_provider_label(task),
                 targets=result.outcomes,
-            )
+            ):
+                _emit_analytics(claim, task, TaskStatus.SKIPPED, error=reason)
             return False
         _skip_cancelled_schedule(claim, task, fire_time)
         return False
@@ -289,7 +295,7 @@ def _execute_claimed_task(
         targets=result.outcomes,
     ):
         return False
-    _emit_analytics(task, work_status, error=error)
+    _emit_analytics(claim, task, work_status, error=error)
     _record_work_item_reminder_delivery(task)
     record_scheduler_execution_operation(
         "scheduled_task_execution_completed",
@@ -411,7 +417,7 @@ def _record_failure(
         targets=outcomes,
     ):
         return
-    _emit_analytics(task, TaskStatus.FAILED, error=error)
+    _emit_analytics(claim, task, TaskStatus.FAILED, error=error)
     extra: dict[str, object] = {"stage": stage}
     if result is not None:
         extra["delivery_status"] = result.status.value
@@ -428,39 +434,47 @@ def _record_failure(
     logger.warning("Task %s failed: %s", task.id, error)
 
 
-def _emit_analytics_started(task: ScheduledTask) -> None:
+def _run_properties(claim: ExecutionClaim, task: ScheduledTask) -> Properties:
+    """Identify one run attempt; its start and terminal events share these values.
+
+    ``(task_id, fire_time, attempt)`` names one attempt. A start with no
+    terminal event of the same attempt that is followed by a higher attempt of
+    the same ``fire_time`` was interrupted and reclaimed.
+    """
+    return {
+        "task_id": task.id,
+        "task_kind": task.kind.value,
+        "provider": task.provider.value,
+        "fire_time": claim.fire_time,
+        "attempt": claim.attempt,
+    }
+
+
+def _emit_analytics_started(claim: ExecutionClaim, task: ScheduledTask) -> None:
     """Emit SCHEDULED_TASK_STARTED event after a claim is won."""
     try:
         from infrastructure.analytics.events import Event
-        from infrastructure.analytics.provider import Properties, get_analytics
+        from infrastructure.analytics.provider import get_analytics
 
-        properties: Properties = {
-            "task_id": task.id,
-            "task_kind": task.kind.value,
-            "provider": task.provider.value,
-        }
-        get_analytics().capture(Event.SCHEDULED_TASK_STARTED, properties)
+        get_analytics().capture(Event.SCHEDULED_TASK_STARTED, _run_properties(claim, task))
     except Exception:
         logger.debug("Failed to emit analytics for task %s", task.id, exc_info=True)
 
 
-def _emit_analytics(task: ScheduledTask, status: TaskStatus, error: str = "") -> None:
-    """Emit analytics event for task execution completion."""
+def _emit_analytics(
+    claim: ExecutionClaim, task: ScheduledTask, status: TaskStatus, error: str = ""
+) -> None:
+    """Emit the run's terminal event; a skipped run is one the user cancelled mid-tick."""
     try:
         from infrastructure.analytics.events import Event
-        from infrastructure.analytics.provider import Properties, get_analytics
+        from infrastructure.analytics.provider import get_analytics
 
-        event_name = (
-            Event.SCHEDULED_TASK_COMPLETED
-            if status == TaskStatus.SUCCESS
-            else Event.SCHEDULED_TASK_FAILED
-        )
-        properties: Properties = {
-            "task_id": task.id,
-            "task_kind": task.kind.value,
-            "provider": task.provider.value,
-            "status": status.value,
-        }
+        event_name = {
+            TaskStatus.SUCCESS: Event.SCHEDULED_TASK_COMPLETED,
+            TaskStatus.SKIPPED: Event.SCHEDULED_TASK_CANCELLED,
+        }.get(status, Event.SCHEDULED_TASK_FAILED)
+        properties = _run_properties(claim, task)
+        properties["status"] = status.value
         if error:
             properties["error"] = error[:200]
         get_analytics().capture(event_name, properties)
