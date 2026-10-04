@@ -11,6 +11,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from config.constants.scheduler import WEEKDAY_CRON_FIELD
+from infrastructure.scheduling.scheduler.cron_expression import day_of_week_names
 from infrastructure.scheduling.scheduler.loop_constants import (
     LOOP_PROMPT_PARAM,
     LOOP_REPORT_ARGS_PARAM,
@@ -216,11 +217,15 @@ def loop_card(scheduled: ScheduledLoop) -> LoopCard:
     """What the user is told about the loop: one headline and one fact per line."""
     task = scheduled.loop.task
     verb = "Already scheduled" if scheduled.reused else "Scheduled"
-    when = loop_time_label(task.cron) or task.cron
-    weekday_field = task.cron.split()[-1]
-    if weekday_field in {WEEKDAY_CRON_FIELD, "0-4"}:
+    # Empty unless the cron is five fields with a plain hour and minute.
+    when = loop_time_label(task.cron)
+    try:
+        days = day_of_week_names(task.cron.split()[-1])
+    except ValueError:
+        days = ""
+    if when and days == WEEKDAY_CRON_FIELD:
         schedule = f"weekdays at {when}"
-    elif weekday_field == "*":
+    elif when and days == "*":
         schedule = f"every day at {when}"
     else:
         schedule = f"on cron {task.cron}"

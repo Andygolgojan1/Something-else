@@ -60,11 +60,23 @@ def test_scheduling_the_same_repository_again_reuses_the_loop(store_path: Path) 
     assert ci_loop.loop_card(second).headline.startswith("Already scheduled")
 
 
-def test_saved_numeric_schedule_is_not_mislabeled_as_weekdays() -> None:
-    scheduled = _scheduled_stub("acme", "app")
-    scheduled.loop.task.cron = "0 8 * * 1-5"
+@pytest.mark.parametrize(
+    ("cron", "schedule"),
+    [
+        ("0 8 * * 1-5", "weekdays at 08:00"),
+        ("0 8 * * 0-4", "on cron 0 8 * * 0-4"),
+        ("30 0 8 * * 1-5", "on cron 30 0 8 * * 1-5"),
+    ],
+)
+def test_a_saved_schedule_is_labeled_by_its_crontab_days(cron: str, schedule: str) -> None:
+    """``1-5`` is Monday to Friday in crontab; ``0-4`` runs Sunday to Thursday.
 
-    assert ci_loop.loop_card(scheduled).details[0].startswith("Runs on cron 0 8 * * 1-5 UTC")
+    A cron without a plain hour and minute, such as a six-field line, is shown as is.
+    """
+    scheduled = _scheduled_stub("acme", "app")
+    scheduled.loop.task.cron = cron
+
+    assert ci_loop.loop_card(scheduled).details[0].startswith(f"Runs {schedule} UTC")
 
 
 def test_the_card_is_a_bulleted_list_not_a_paragraph(store_path: Path) -> None:
