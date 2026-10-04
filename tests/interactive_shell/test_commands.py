@@ -16,9 +16,13 @@ from rich.console import Console
 
 from config.account import AccountLLMRoute
 from config.constants.conversation_history import (
+    HISTORY_COMPACT_AFTER_TURNS,
+    HISTORY_KEEP_MAX_TURNS,
+    OPENSRE_HISTORY_TOKEN_BUDGET_ENV,
     OPENSRE_LLM_COMPACTION_ENV,
     OPENSRE_STRUCTURED_HISTORY_ENV,
 )
+from config.constants.runtime_metadata import OPENSRE_WORKSPACE_REPO_ENV
 from surfaces.interactive_shell.command_registry import SLASH_COMMANDS, dispatch_slash
 from surfaces.interactive_shell.command_registry import repl_data as repl_data_module
 from surfaces.interactive_shell.command_registry.tasks_cmds import _validate_cancel_args
@@ -320,8 +324,6 @@ class TestDispatchSlash:
         assert "interactions" in output
         assert "reasoning effort" in output
         assert "trust mode" in output
-        assert "grounding cli cache" in output
-        assert "grounding docs cache" in output
 
     def test_unknown_command_does_not_exit(self) -> None:
         session = Session()
@@ -1839,19 +1841,60 @@ class TestHistoryCommand:
 
 
 class TestContextCommand:
-    def test_empty_context_says_so(self) -> None:
-        console, buf = _capture()
-        dispatch_slash("/context", Session(), console)
-        assert "no infra context" in buf.getvalue()
-
-    def test_shows_accumulated_keys(self) -> None:
+    def test_lists_each_prompt_block_the_history_and_the_budget(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(OPENSRE_HISTORY_TOKEN_BUDGET_ENV, "8000")
         session = Session()
-        session.accumulated_context = {"service": "orders-api", "region": "us-east-1"}
+        session.agent.record_turn("is ci green?", "CI is green on main.")
         console, buf = _capture()
         dispatch_slash("/context", session, console)
         output = buf.getvalue()
-        assert "orders-api" in output
-        assert "us-east-1" in output
+        assert "action-agent-system-base" in output
+        assert "2 messages from 1 turn" in output
+        assert f"at 8,000 tokens or {HISTORY_COMPACT_AFTER_TURNS} turns" in output
+
+    def test_says_when_the_next_turn_compacts_first(self) -> None:
+        # Many short turns stay under the token budget; compaction's own
+        # verdict, not a token comparison, decides what the next call holds.
+        session = Session()
+        for index in range(HISTORY_COMPACT_AFTER_TURNS + 1):
+            session.agent.record_turn(f"question {index}", f"answer {index}")
+        console, buf = _capture()
+        dispatch_slash("/context", session, console)
+        output = buf.getvalue()
+        assert "older turns are summarized before the next turn" in output
+        # The breakdown is the call the model gets: the turns compaction keeps,
+        # not the transcript it is about to fold away.
+        assert "history after compaction" in output
+        assert f"from {HISTORY_KEEP_MAX_TURNS} turns" in output
+        kept = HISTORY_KEEP_MAX_TURNS * 2
+        assert f"folds {(HISTORY_COMPACT_AFTER_TURNS + 1) * 2 - kept} older messages" in output
+
+    def test_shows_the_repository_the_next_turn_targets(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(OPENSRE_WORKSPACE_REPO_ENV, "Tracer-Cloud/opensre")
+        session = Session()
+        console, buf = _capture()
+        dispatch_slash("/context", session, console)
+        assert "none active yet" in buf.getvalue()
+
+        session.resolved_integrations_cache = {"github": {"connection_verified": True}}
+        console, buf = _capture()
+        dispatch_slash("/context", session, console)
+        output = buf.getvalue()
+        assert "repository-instructions" in output
+        assert "none active yet" not in output
+        assert session.active_vcs_repositories == {}
+
+    def test_leaves_a_pending_recovery_note_for_the_next_turn(self) -> None:
+        session = Session()
+        session.pending_recovery_note = "shell_run started and never finished"
+        console, buf = _capture()
+        dispatch_slash("/context", session, console)
+        assert "interrupted-turn-recovery" in buf.getvalue()
+        assert session.pending_recovery_note == "shell_run started and never finished"
 
 
 class TestCostCommand:
