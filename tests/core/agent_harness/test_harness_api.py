@@ -121,6 +121,7 @@ SPI_ROLE_NAMES: dict[str, frozenset[str]] = {
             "set_turn_outcome_hint",
             "take_setup_resume",
             "trust_mode_enabled",
+            "withheld_skill_capability",
             "withhold_capabilities",
         }
     ),

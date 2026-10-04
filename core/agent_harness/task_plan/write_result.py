@@ -56,8 +56,8 @@ def format_update_plan_instruction(
     """Instruction returned on a successful ``update_plan`` write.
 
     ``newly_blocked`` says this write blocked a step that was not blocked
-    before. Only then is the model told to ask the user about it, and not on
-    an Ask User answer: the user was just consulted.
+    before. Only then is the model told to ask the user about it, on an Ask
+    User answer too: that answer was about something else.
     """
     parts = [_STORED]
     if plan_only:
@@ -68,7 +68,7 @@ def format_update_plan_instruction(
         parts.append(_CONTINUE)
     if plan.blocked_count:
         parts.append(_BLOCKED)
-        if newly_blocked and not ask_user_turn:
+        if newly_blocked:
             parts.append(_ASK_ABOUT_BLOCKED)
         parts.append(_UNBLOCKED)
     if demoted:

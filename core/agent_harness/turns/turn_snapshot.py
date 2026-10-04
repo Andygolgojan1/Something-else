@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from core.agent_harness.prompts.kernel.surfaces import profile_for
+from core.agent_harness.session.capabilities import withheld_skill_capability
 from core.agent_harness.session_goal.goal import SessionGoal
 from core.agent_harness.session_goal.progress import format_session_goal_brief
 from core.agent_harness.task_plan.ownership import session_answer_continues_plan
@@ -278,7 +279,7 @@ class TurnSnapshot:
             available_tools=tuple(getattr(runtime_input, "available_tools", ())),
             active_tools=tuple(getattr(runtime_input, "active_tools", ())),
             skill_discovery_enabled=bool(getattr(session, "skill_discovery_enabled", True)),
-            active_skill=getattr(session, "active_skill", None),
+            active_skill=_runnable_active_skill(session),
             resolved_integrations=dict(getattr(runtime_input, "resolved_integrations", {}) or {}),
             tool_resources=dict(getattr(runtime_input, "tool_resources", {}) or {}),
             max_iterations=int(getattr(runtime_input, "max_iterations", 1)),
@@ -365,6 +366,12 @@ def _read_last_observation(session: TurnSnapshotSource, runtime_input: Any | Non
         return session_observation
 
     return None
+
+
+def _runnable_active_skill(session: Any) -> str | None:
+    """The session's active skill, unless it needs a capability this host withholds."""
+    name = getattr(session, "active_skill", None)
+    return None if withheld_skill_capability(session, name) else name
 
 
 __all__ = [

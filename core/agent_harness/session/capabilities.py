@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from config.constants.skill_prerequisites import SKILL_REQUIRED_CAPABILITIES
+
 
 def withhold_capabilities(session: Any, *names: str) -> None:
     """Record that this host offers no tools for ``names``.
@@ -25,4 +27,23 @@ def withhold_capabilities(session: Any, *names: str) -> None:
         capabilities[name] = ()
 
 
-__all__ = ["withhold_capabilities"]
+def withheld_skill_capability(session: Any, skill_name: str | None) -> str | None:
+    """The first capability ``skill_name`` needs that this session withholds, if any.
+
+    A skill that needs a withheld capability cannot run on this host: the
+    gateway withholds the hosted-gateway tools its shell-only skills drive.
+    """
+    capabilities = getattr(session, "available_capabilities", None)
+    if not skill_name or not isinstance(capabilities, dict):
+        return None
+    return next(
+        (
+            name
+            for name in SKILL_REQUIRED_CAPABILITIES.get(skill_name, ())
+            if capabilities.get(name) == ()
+        ),
+        None,
+    )
+
+
+__all__ = ["withheld_skill_capability", "withhold_capabilities"]

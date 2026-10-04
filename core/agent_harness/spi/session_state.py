@@ -7,7 +7,10 @@ compaction, and the capabilities a host withholds.
 
 from __future__ import annotations
 
-from core.agent_harness.session.capabilities import withhold_capabilities
+from core.agent_harness.session.capabilities import (
+    withheld_skill_capability,
+    withhold_capabilities,
+)
 from core.agent_harness.session.pending_choice import PendingUserChoice
 from core.agent_harness.session.pending_offer import (
     PendingScheduleOffer,
@@ -50,5 +53,6 @@ __all__ = [
     "set_turn_outcome_hint",
     "take_setup_resume",
     "trust_mode_enabled",
+    "withheld_skill_capability",
     "withhold_capabilities",
 ]

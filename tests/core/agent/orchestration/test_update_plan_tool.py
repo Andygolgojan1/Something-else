@@ -480,7 +480,7 @@ def test_update_plan_records_the_steps_it_newly_blocked() -> None:
     assert "ask_user_choice" in result["instruction"]
 
 
-def test_only_a_write_that_newly_blocks_a_step_outside_an_answer_asks_about_it() -> None:
+def test_only_a_write_that_newly_blocks_a_step_asks_about_it() -> None:
     """The ask used to ride on every write while a step stayed blocked.
 
     Its "options for what would unblock it" led the model to invent an option
@@ -506,10 +506,11 @@ def test_only_a_write_that_newly_blocks_a_step_outside_an_answer_asks_about_it()
     staying = write(_worked(session), "completed", "blocked", "in_progress")
     on_answer = write(Session(), "in_progress", "blocked", "pending", message=answer)
 
-    # Assert: every write with a blocked step says it stays blocked; only the
-    # first asks for the menu, which names the step in blocked_step.
+    # Assert: every write with a blocked step says it stays blocked; the writes
+    # that newly block one ask for the menu, which names the step in blocked_step,
+    # on an answer turn too: that answer was about something else.
     for instruction in (blocking, staying, on_answer):
         assert "Blocked steps stay blocked" in instruction
     assert "ask_user_choice with blocked_step" in blocking
     assert "ask_user_choice" not in staying
-    assert "ask_user_choice" not in on_answer
+    assert "ask_user_choice with blocked_step" in on_answer

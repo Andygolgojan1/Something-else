@@ -17,14 +17,12 @@ from collections.abc import Mapping
 from typing import Any
 
 from config.constants.ask_user import AskUserReason
-from config.constants.skill_prerequisites import (
-    SKILL_CAPABILITY_WITHHELD,
-    SKILL_REQUIRED_CAPABILITIES,
-)
+from config.constants.skill_prerequisites import SKILL_CAPABILITY_WITHHELD
 from core.agent_harness.spi.grounding import ActionSkill, SkillEntryMenu
 from core.agent_harness.spi.handoff import question_key
 from core.agent_harness.spi.skill_releases import SkillCatalogSnapshot, active_skill_catalog
-from core.agent_harness.tools import ActionToolScope, capability_not_explicitly_disabled
+from core.agent_harness.spi.session_state import withheld_skill_capability
+from core.agent_harness.tools import ActionToolScope
 from infrastructure.analytics.capture import capture_skill_executed
 from tools.interactive_shell.actions.ask_choice import (
     ask_user_choice_tool,
@@ -110,18 +108,6 @@ def _may_open_menu(session: Any, skill: ActionSkill, *, from_model: bool) -> boo
     return skill.name not in (getattr(session, "skills_already_prompted", None) or set())
 
 
-def _withheld_capability(session: Any, skill_name: str) -> str | None:
-    """The first capability ``skill_name`` needs that this host explicitly withholds."""
-    return next(
-        (
-            capability
-            for capability in SKILL_REQUIRED_CAPABILITIES.get(skill_name, ())
-            if not capability_not_explicitly_disabled(session, capability)
-        ),
-        None,
-    )
-
-
 def _refuse_on_this_host(session: Any, skill_name: str, capability: str) -> dict[str, Any]:
     """The result for a skill this host cannot run: no body, and no longer the active skill.
 
@@ -163,7 +149,7 @@ def enter_skill(
             "available": available,
         }
     session = getattr(ctx, "session", None)
-    withheld = _withheld_capability(session, skill.name)
+    withheld = withheld_skill_capability(session, skill.name)
     if withheld is not None:
         return _refuse_on_this_host(session, skill.name, withheld)
     already_active = (
