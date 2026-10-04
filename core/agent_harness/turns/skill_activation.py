@@ -15,7 +15,6 @@ def prepare_active_skill(session: Any, message: str) -> None:
     dropped even on an answer, so a session saved before that rule existed does
     not keep driving it.
     """
-    if not message.strip().startswith("/") and not parse_ask_user_answers(message):
-        session.active_skill = None
-    elif withheld_skill_capability(session, getattr(session, "active_skill", None)):
+    new_request = not message.strip().startswith("/") and not parse_ask_user_answers(message)
+    if new_request or withheld_skill_capability(session, getattr(session, "active_skill", None)):
         session.active_skill = None

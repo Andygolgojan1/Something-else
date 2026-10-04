@@ -20,8 +20,8 @@ from config.constants.ask_user import AskUserReason
 from config.constants.skill_prerequisites import SKILL_CAPABILITY_WITHHELD
 from core.agent_harness.spi.grounding import ActionSkill, SkillEntryMenu
 from core.agent_harness.spi.handoff import question_key
-from core.agent_harness.spi.skill_releases import SkillCatalogSnapshot, active_skill_catalog
 from core.agent_harness.spi.session_state import withheld_skill_capability
+from core.agent_harness.spi.skill_releases import SkillCatalogSnapshot, active_skill_catalog
 from core.agent_harness.tools import ActionToolScope
 from infrastructure.analytics.capture import capture_skill_executed
 from tools.interactive_shell.actions.ask_choice import (
