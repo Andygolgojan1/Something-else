@@ -50,9 +50,11 @@ from core.agent_harness.turns.turn_snapshot import TurnSnapshot
 from integrations.store import resolve_store_path, upsert_integration
 from surfaces.interactive_shell.runtime.action_turn import run_action_tool_turn
 from surfaces.interactive_shell.session import Session
+from surfaces.interactive_shell.ui.input_prompt.rendering import render_submitted_prompt
 from surfaces.shared.terminal.components import choice_menu, cpr_stdin
 from tests.core.agent.orchestration.action_execution_test_harness import (
     FakeActionLLM,
+    no_tool_response,
     tool_response,
 )
 from tools.system.workspace_git_scan.scan import WorkspaceSnapshot
@@ -180,9 +182,9 @@ def test_boot_paints_only_the_skill_menu_then_selected_child_runs_through_real_t
     session.resolved_integrations_cache = {}
     buffer = io.StringIO()
     console = Console(file=buffer, highlight=False)
+    # The pick enters the chosen skill, so its first response is already step 1.
     llm = FakeActionLLM(
         [
-            tool_response("skill_view", {"name": "analyzing-github-ci-performance"}),
             tool_response("scan_local_git_workspace"),
             tool_response(
                 "ask_user_choice",
@@ -246,14 +248,17 @@ def test_boot_paints_only_the_skill_menu_then_selected_child_runs_through_real_t
         "letter_keys": True,
         "note": _NOTE,
     }
-    assert session.active_skill == ONBOARDING_SKILL_NAME
+    # The pick entered the chosen skill: its answer turn carries that skill's
+    # body, not the onboarding router's, and needs no skill_view round trip.
+    assert session.active_skill == "analyzing-github-ci-performance"
     answer = _take_prompt(session)
     assert answer == format_ask_user_answers(pending.items(), (ANALYZE_REPO_OPTION,))
     envelope = build_action_system_prompt_envelope(
         TurnSnapshot.from_session(answer, session, surface="interactive_shell")
     )
-    assert "## Follow the selected child" in envelope.render_ephemeral()
-    assert "## Follow the selected child" not in envelope.render_cached()
+    assert "ACTIVE SKILL: analyzing-github-ci-performance" in envelope.render_ephemeral()
+    assert "## Follow the selected child" not in envelope.render_ephemeral()
+    assert "ACTIVE SKILL:" not in envelope.render_cached()
 
     run_action_tool_turn(answer, session, console, is_tty=True, llm_factory=lambda: llm)
     assert len(scans) == 1
@@ -261,7 +266,7 @@ def test_boot_paints_only_the_skill_menu_then_selected_child_runs_through_real_t
     assert session.pending_user_choice is not None, buffer.getvalue()
     assert session.pending_user_choice.title == _REPOSITORY_TITLE
     assert session.pending_user_choice.options == _REPOSITORY_OPTIONS
-    assert llm.invocations == 3
+    assert llm.invocations == 2
     # Raw-data analysis retains the full catalog for model-selected collection.
     assert onboarding_outcomes == [("ci_analytics", False)]
 
@@ -276,7 +281,6 @@ def test_boot_paints_only_the_skill_menu_then_selected_child_runs_through_real_t
     replay_answer = _take_prompt(session)
     replay_llm = FakeActionLLM(
         [
-            tool_response("skill_view", {"name": "analyzing-github-ci-performance"}),
             tool_response("scan_local_git_workspace"),
             tool_response(
                 "ask_user_choice",
@@ -291,6 +295,52 @@ def test_boot_paints_only_the_skill_menu_then_selected_child_runs_through_real_t
     assert session.pending_user_choice is not None
     assert session.pending_user_choice.title == _REPOSITORY_TITLE
     assert "deploy to production?" in session.questions_already_answered
+
+
+def test_a_demo_entered_at_the_pick_is_nudged_past_a_reply_that_runs_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+    onboarding_outcomes: list[tuple[str, bool | None]],
+) -> None:
+    """Without a skill load to catch, a no-work reply on the pick's turn still stalls."""
+    del onboarding_outcomes
+    _offerable(monkeypatch)
+    monkeypatch.setenv(GITHUB_TOKEN_ENV, "ghp_ready")
+    session = Session()
+    session.resolved_integrations_cache = {}
+    console = Console(file=io.StringIO(), highlight=False)
+    scans: list[str] = []
+
+    def scan(root: Any, **_kwargs: Any) -> WorkspaceSnapshot:
+        scans.append(str(root))
+        return WorkspaceSnapshot(root=str(root), days=30, repos=())
+
+    monkeypatch.setattr(scan_tool, "scan_workspace", scan)
+    monkeypatch.setattr(choice_prompt, "repl_choose_one", lambda **_kw: ANALYZE_REPO_OPTION)
+    assert demo_picker.offer_demo(session, console)
+    session.terminal.exclusive_stdin_active = True
+    run_action_tool_turn(
+        _take_prompt(session), session, console, is_tty=True, llm_factory=lambda: FakeActionLLM([])
+    )
+    session.terminal.exclusive_stdin_active = False
+    llm = FakeActionLLM(
+        [
+            no_tool_response("I'll scan your repositories next."),
+            tool_response("scan_local_git_workspace"),
+            tool_response(
+                "ask_user_choice",
+                {"title": _REPOSITORY_TITLE, "options": list(_REPOSITORY_OPTIONS)},
+            ),
+        ]
+    )
+
+    run_action_tool_turn(
+        _take_prompt(session), session, console, is_tty=True, llm_factory=lambda: llm
+    )
+
+    assert len(scans) == 1
+    assert session.pending_user_choice is not None
+    assert session.pending_user_choice.title == _REPOSITORY_TITLE
+    assert llm.invocations == 3
 
 
 def test_without_github_the_demo_opens_setup_first_and_resumes_after_it(
@@ -594,6 +644,65 @@ def test_automation_group_submits_the_follow_up_leaf_not_the_group(
     ]
 
 
+@pytest.mark.parametrize("leaf", [LOCAL_REPAIR_OPTION, CLOUD_REPAIR_OPTION])
+@pytest.mark.parametrize("create", [True, False])
+def test_a_repair_pick_with_permission_paints_one_ask_user_card(
+    monkeypatch: pytest.MonkeyPatch,
+    onboarding_outcomes: list[tuple[str, bool | None]],
+    leaf: str,
+    create: bool,
+) -> None:
+    """``/choose`` paints the recap; submitting that same answer must not paint another."""
+    del onboarding_outcomes
+    _offerable(monkeypatch)
+    monkeypatch.setenv(GITHUB_TOKEN_ENV, "ghp_ready")
+    session = Session()
+    session.active_skill = ONBOARDING_SKILL_NAME
+    session.pending_user_choice = PendingUserChoice(title=_TITLE, options=OUTCOME_MENU_OPTIONS)
+    create_option = "Create acme/opensre-ci-repair-demo-ab12"
+    monkeypatch.setattr(choice_prompt, "_demo_create_option", lambda: create_option)
+    picks = {
+        _TITLE: AUTOMATION_GROUP_OPTION,
+        AUTOMATION_MENU_TITLE: leaf,
+        DEMO_REPO_PERMISSION_TITLE: create_option if create else DEMO_REPO_DECLINE_OPTION,
+    }
+    monkeypatch.setattr(choice_prompt, "repl_choose_one", lambda **kwargs: picks[kwargs["title"]])
+    output = io.StringIO()
+    console = Console(file=output, force_terminal=False, highlight=False, width=120)
+
+    choice_prompt._cmd_choose(session, console, [])
+    answer = _take_prompt(session)
+    # What the prompt loop does with the queued answer.
+    session.terminal.last_input_autosubmitted = True
+    render_submitted_prompt(console, session, answer)
+
+    lines = [line.strip() for line in output.getvalue().splitlines()]
+    assert lines.count("Ask User") == 1
+    assert session.terminal.handoff_recap_text is None
+
+
+def test_a_typed_ask_user_answer_still_paints_its_card(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only the exact answer ``/choose`` already recapped skips its card."""
+    del monkeypatch
+    session = Session()
+    session.terminal.awaiting_handoff_answer = True
+    session.terminal.handoff_recap_text = "an earlier, replaced answer"
+    pending = PendingUserChoice(title=_TITLE, options=OUTCOME_MENU_OPTIONS)
+    permission = AskUserQuestion(
+        label="Demo repository", title=DEMO_REPO_PERMISSION_TITLE, options=("Create demo",)
+    )
+    answer = format_ask_user_answers(
+        (pending.items()[0], permission), (LOCAL_REPAIR_OPTION, "Create demo")
+    )
+    output = io.StringIO()
+
+    render_submitted_prompt(
+        Console(file=output, force_terminal=False, highlight=False, width=120), session, answer
+    )
+
+    assert [line.strip() for line in output.getvalue().splitlines()].count("Ask User") == 1
+
+
 def test_without_github_the_local_repair_demo_asks_for_setup_before_its_repository(
     monkeypatch: pytest.MonkeyPatch,
     onboarding_outcomes: list[tuple[str, bool | None]],
@@ -685,10 +794,12 @@ def test_automation_picker_leaf_hands_off_to_the_current_child(
         expected_answers = (leaf, DEMO_REPO_DECLINE_OPTION)
     assert answer == format_ask_user_answers(expected_questions, expected_answers)
     assert AUTOMATION_GROUP_OPTION not in answer
+    # The pick entered the child, so its answer turn starts in the child's body.
+    assert session.active_skill == child_skill
     envelope = build_action_system_prompt_envelope(
         TurnSnapshot.from_session(answer, session, surface="interactive_shell")
     )
-    assert f'- "{leaf}": call `skill_view(name="{child_skill}")`.' in envelope.render_ephemeral()
+    assert f"ACTIVE SKILL: {child_skill}" in envelope.render_ephemeral()
 
     run_action_tool_turn(answer, session, console, is_tty=True, llm_factory=lambda: llm)
 

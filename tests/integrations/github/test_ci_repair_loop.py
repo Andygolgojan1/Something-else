@@ -359,7 +359,7 @@ def test_worker_retries_then_credits_only_the_verified_head(
     store = RepairStore(tmp_path)
     run = _run(pr_number=1, fast_checks=True)
     monkeypatch.setattr(worker, "configured_token", lambda: "test-token")
-    monkeypatch.setattr(worker, "verify_coding_agent", lambda: (True, "ready"))
+    monkeypatch.setattr(worker, "select_coding_agent", lambda: ("codex", "ready"))
     monkeypatch.setattr(worker, "GitHubRestClient", lambda _token: _RepairApi())
 
     def clone(_url: str, workspace: str, **_kwargs: Any) -> None:
@@ -411,6 +411,116 @@ def test_worker_retries_then_credits_only_the_verified_head(
     assert not Path(run.workspace).exists()
 
 
+def test_attempt_record_adds_the_backend_and_phase_times_to_the_repair_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Where the minutes went, per attempt: setup lands in the first record, nothing is lost."""
+    from itertools import count
+
+    from integrations.github.tools.ci_fix.timing import PhaseTimer
+    from integrations.github.tools.ci_repair_loop import worker
+
+    # Arrange: every clock read is one second after the previous one.
+    store = RepairStore(tmp_path)
+    run = _run(pr_number=1, fast_checks=True)
+    ticks = count()
+    timer = PhaseTimer(clock=lambda: float(next(ticks)))
+    monkeypatch.setattr(worker, "configured_token", lambda: "test-token")
+    monkeypatch.setattr(worker, "select_coding_agent", lambda: ("codex", "ready"))
+    monkeypatch.setattr(worker, "GitHubRestClient", lambda _token: _RepairApi())
+    monkeypatch.setattr(worker, "clone_repository", lambda _url, ws, **_kw: Path(ws).mkdir())
+    monkeypatch.setattr(worker, "record_ci_fix_outcome", lambda _output: None)
+    output = {"success": True, "checks_state": "passed", "fix_head_sha": "fixed"}
+
+    def repair(**kwargs: Any) -> dict[str, Any]:
+        with kwargs["timer"].phase("coding_agent"):
+            return output
+
+    def pr(_run: RepairRun, _token: str) -> dict[str, Any]:
+        head = "fixed" if run.attempts else "broken"
+        conclusion = "SUCCESS" if run.attempts else "FAILURE"
+        return {
+            "state": "OPEN",
+            "headRefOid": head,
+            "statusCheckRollup": [{"conclusion": conclusion}],
+        }
+
+    monkeypatch.setattr(worker, "run_ci_fix", repair)
+    monkeypatch.setattr(worker, "_read_pr", pr)
+
+    # Act
+    worker.execute_repair(run, store, timer)
+
+    # Assert: the repair output is unchanged; backend and phase times are added keys.
+    record = json.loads((store.directory(run.id) / "attempt-1.json").read_text())
+    expected = {
+        "agent_probe": 1.0,
+        "github_user": 1.0,
+        "clone": 1.0,
+        "wait_for_failure": 1.0,
+        "coding_agent": 1.0,
+    }
+    assert record == {**output, "coding_agent": "codex", "phase_seconds": expected}
+    assert run.status is RepairStatus.SUCCEEDED
+    assert run.coding_agent == "codex"
+    assert run.phase_seconds == expected
+
+
+def test_a_repair_probes_the_coding_agents_once_for_all_its_attempts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``pi --version`` alone took 2-3 s here; three attempts used to sweep seven times."""
+    from unittest.mock import MagicMock
+
+    from integrations.coding_agent import CodingResult, run_coding_task, verify_coding_agent
+    from integrations.coding_agent.runner import _BACKENDS
+    from integrations.github.tools.ci_repair_loop import worker
+
+    # Arrange: auto finds Pi signed out, then Codex ready.
+    pi_probe = MagicMock(return_value=(False, "pi has no credentials"))
+    codex_probe = MagicMock(return_value=(True, "codex ready"))
+    codex_run = MagicMock(return_value=CodingResult(success=True, summary="fixed"))
+    monkeypatch.delenv("CODING_AGENT", raising=False)
+    monkeypatch.setattr(
+        "integrations.coding_agent.runner.hosted_openai_subprocess_env", lambda: None
+    )
+    monkeypatch.setitem(_BACKENDS, "pi", (MagicMock(), pi_probe))
+    monkeypatch.setitem(_BACKENDS, "claude-code", (MagicMock(), pi_probe))
+    monkeypatch.setitem(_BACKENDS, "codex", (codex_run, codex_probe))
+    store = RepairStore(tmp_path)
+    run = _run(pr_number=1, fast_checks=True)
+    monkeypatch.setattr(worker, "configured_token", lambda: "test-token")
+    monkeypatch.setattr(worker, "GitHubRestClient", lambda _token: _RepairApi())
+    monkeypatch.setattr(worker, "clone_repository", lambda _url, ws, **_kw: Path(ws).mkdir())
+    monkeypatch.setattr(worker, "record_ci_fix_outcome", lambda _output: None)
+    monkeypatch.setattr(worker.time, "sleep", lambda _seconds: None)
+
+    def repair(**_kwargs: Any) -> dict[str, Any]:
+        # What each coding step of run_ci_fix does: check readiness, then run the agent.
+        assert verify_coding_agent() == (True, "codex: codex ready")
+        run_coding_task("fix", workspace="/w", model=None, timeout_sec=60)
+        return {"success": False, "error_kind": "checks_failed"}
+
+    def pr(_run: RepairRun, _token: str) -> dict[str, Any]:
+        return {
+            "state": "OPEN",
+            "headRefOid": "broken",
+            "statusCheckRollup": [{"conclusion": "FAILURE"}],
+        }
+
+    monkeypatch.setattr(worker, "run_ci_fix", repair)
+    monkeypatch.setattr(worker, "_read_pr", pr)
+
+    # Act
+    worker.execute_repair(run, store)
+
+    # Assert: one sweep at worker start served every attempt's check and run.
+    assert run.attempts == CI_REPAIR_MAX_ATTEMPTS
+    assert codex_run.call_count == CI_REPAIR_MAX_ATTEMPTS
+    assert pi_probe.call_count == 2  # Pi and Claude Code, once each
+    assert codex_probe.call_count == 1
+
+
 def test_repair_stops_after_three_failed_attempts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -457,7 +567,7 @@ def test_account_change_stops_before_any_remote_write(
 
     api = _RepairApi()
     monkeypatch.setattr(worker, "configured_token", lambda: "test-token")
-    monkeypatch.setattr(worker, "verify_coding_agent", lambda: (True, "ready"))
+    monkeypatch.setattr(worker, "select_coding_agent", lambda: ("codex", "ready"))
     monkeypatch.setattr(worker, "GitHubRestClient", lambda _token: api)
     run = _run().model_copy(update={"actor_id": 456})
 
@@ -1295,7 +1405,7 @@ def _repair_on_the_second_attempt(
 
     store = RepairStore(tmp_path)
     monkeypatch.setattr(worker, "configured_token", lambda: "test-token")
-    monkeypatch.setattr(worker, "verify_coding_agent", lambda: (True, "ready"))
+    monkeypatch.setattr(worker, "select_coding_agent", lambda: ("codex", "ready"))
     monkeypatch.setattr(worker, "GitHubRestClient", lambda _token: _RepairApi())
     monkeypatch.setattr(
         worker, "clone_repository", lambda _url, workspace, **_kw: Path(workspace).mkdir()
