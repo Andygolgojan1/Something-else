@@ -560,6 +560,9 @@ EXPORTS: dict[str, str] = {
     "CREDENTIALS_BOOTSTRAP_SECRET_ARN_ENV": "tenancy",
     "INTEGRATIONS_SECRET_ARN_ENV": "tenancy",
     "INTEGRATIONS_STORE_PATH_ENV": "tenancy",
+    # tls
+    "SSL_CERT_DIR_ENV": "tls",
+    "SSL_CERT_FILE_ENV": "tls",
     "TURN_ACTOR_ID_ENV": "tenancy",
     "TURN_ORGANIZATION_ID_ENV": "tenancy",
     # tooling
