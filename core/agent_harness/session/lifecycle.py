@@ -36,6 +36,7 @@ from datetime import datetime
 from typing import Any, TypeVar
 
 from core.agent_harness.session.persistence.contracts import (
+    CARRIED_MESSAGE_METADATA_KEY,
     TURN_EVIDENCE_CUSTOM_TYPE,
     RestoreContextKey,
     SessionRepo,
@@ -243,7 +244,8 @@ class SessionManager:
         ``/new`` keeps the conversation going in a fresh session file. Writing
         the carried transcript and turn evidence there means resuming the new
         session later restores what the live one had, not only the turns taken
-        after the rotation.
+        after the rotation. Carried messages are flagged
+        (``CARRIED_MESSAGE_METADATA_KEY``): the old session owns those turns.
         """
         session.agent.messages = messages
         session.agent.turn_evidence = evidence
@@ -251,9 +253,10 @@ class SessionManager:
         append_custom = getattr(session.store, "append_custom_message", None)
         with contextlib.suppress(Exception):
             if callable(append_message):
+                metadata = {"kind": "chat", CARRIED_MESSAGE_METADATA_KEY: True}
                 for role, content in session.agent.messages:
                     append_message(
-                        session.session_id, role=role, content=content, metadata={"kind": "chat"}
+                        session.session_id, role=role, content=content, metadata=metadata
                     )
             if callable(append_custom):
                 for record in session.agent.turn_evidence:
@@ -391,12 +394,13 @@ class SessionManager:
 
         Persisting is best-effort (a failed flush must not crash teardown);
         the session releases its own resources (:meth:`SessionCore.release_resources`)
-        to prevent per-session leaks. Long-term memory extraction also runs after
-        every recorded turn; this close path runs it again after release when
-        ``extract_memory`` is true. Process exit (default) waits for extraction
-        to finish so durable facts are not dropped; gateway rotation passes
-        ``wait_for_memory_extraction=False`` so inbound handling stays
-        responsive, and skips extraction entirely unless gateway memory is opted in.
+        to prevent per-session leaks. Long-term memory extraction also runs in
+        the background every few recorded turns; this close path runs a final
+        pass after release when ``extract_memory`` is true. Process exit
+        (default) waits for extraction to finish so durable facts are not
+        dropped; gateway rotation passes ``wait_for_memory_extraction=False`` so
+        inbound handling stays responsive, and skips extraction entirely unless
+        gateway memory is opted in.
         """
         self._flush(session)
         # Snapshot messages before release/clear; the background extractor must
