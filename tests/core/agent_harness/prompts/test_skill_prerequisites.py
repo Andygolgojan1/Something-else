@@ -9,6 +9,7 @@ from config.constants import CONNECT_INTEGRATIONS_HEADING
 from config.constants.github import GITHUB_SETUP_SLASH_INVOKE
 from config.constants.skill_prerequisites import (
     SKILL_PREREQUISITES,
+    SKILL_REQUIRED_CAPABILITIES,
     SLACK_CONNECTED_CHECK,
     SkillPrerequisite,
 )
@@ -29,13 +30,15 @@ def test_every_demo_has_a_prerequisite_row_whose_checks_are_registered() -> None
     """A new demo must decide its setup, and a table row must name a real skill and check.
 
     An unregistered check fails open, so a typo in a check id would silently
-    remove the gate rather than break anything visible.
+    remove the gate rather than break anything visible. The same holds for a
+    skill name in the capability table.
     """
     names = {skill.name for skill in skills.list_action_skills()}
     demos = {skill.name for skill in skills.getting_started_skills()}
 
     assert demos | {ONBOARDING_SKILL_NAME} <= set(SKILL_PREREQUISITES)
     assert set(SKILL_PREREQUISITES) <= names
+    assert set(SKILL_REQUIRED_CAPABILITIES) <= names
     checks = {item.check for items in SKILL_PREREQUISITES.values() for item in items}
     assert checks
     assert checks <= set(registered_skill_prerequisite_checks())

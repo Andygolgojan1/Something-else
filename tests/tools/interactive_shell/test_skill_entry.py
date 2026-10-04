@@ -25,6 +25,7 @@ from config.constants.skill_prerequisites import GITHUB_REST_TOKEN_CHECK
 from config.constants.skills import (
     ANALYZE_REPO_OPTION,
     ANALYZING_GITHUB_CI_PERFORMANCE_SKILL_NAME,
+    DELEGATING_GITHUB_CI_REPAIRS_SKILL_NAME,
     ONBOARDING_MENU_TITLE,
     ONBOARDING_SKILL_NAME,
     SKIP_DEMO_OPTION,
@@ -38,6 +39,7 @@ from infrastructure.harness_providers import (
     clear_skill_prerequisite_checks,
     register_skill_prerequisite_check,
 )
+from infrastructure.turn_host.capability_policy import ensure_gateway_capability_policy
 from surfaces.interactive_shell.session import Session
 from tests.utils.skill_cards import skill_card
 from tools.interactive_shell.actions.ask_choice import ask_user_choice_tool
@@ -333,6 +335,46 @@ def test_the_skill_starts_when_its_check_passes_or_cannot_run(
     [(event, properties)] = analytics
     assert event == "skill_executed"
     assert (properties["skill_name"], properties["entrypoint"]) == (_GATED, "host")
+
+
+_SHELL_ONLY = DELEGATING_GITHUB_CI_REPAIRS_SKILL_NAME
+
+
+@pytest.mark.parametrize("already_active", [False, True], ids=["entering", "resumed-active"])
+def test_a_shell_only_skill_is_refused_where_the_host_withholds_its_capability(
+    analytics: list[tuple[str, dict[str, str]]], already_active: bool
+) -> None:
+    """Observed live: the gateway loaded the shell-only delegate demo on itself."""
+    # Arrange: the gateway's policy withholds the hosted-gateway tools.
+    session = Session()
+    ensure_gateway_capability_policy(session)
+    if already_active:
+        session.active_skill = _SHELL_ONLY
+
+    # Act
+    result = execute_skill_view_tool(
+        {"name": _SHELL_ONLY}, _scope(session, turn_message="repair CI"), resolved_integrations={}
+    )
+
+    # Assert: refused without the body; the skill is not (or no longer) active
+    # and nothing records it as executed.
+    assert result["ok"] is False
+    assert result["error"].startswith(f"`{_SHELL_ONLY}` runs only in the interactive shell")
+    assert skills.load_skill_body(_SHELL_ONLY) not in str(result)
+    assert session.active_skill is None
+    assert analytics == []
+
+
+def test_a_shell_only_skill_loads_where_its_capability_is_not_withheld() -> None:
+    session = Session()
+
+    result = execute_skill_view_tool(
+        {"name": _SHELL_ONLY}, _scope(session, turn_message="repair CI"), resolved_integrations={}
+    )
+
+    assert result["ok"] is True
+    assert result["content"] == skills.load_skill_body(_SHELL_ONLY)
+    assert session.active_skill == _SHELL_ONLY
 
 
 def test_unavailable_menu_leaves_the_model_to_ask_in_text(demo_catalog: Path) -> None:

@@ -4,6 +4,8 @@ The cards stay human-owned. ``SKILL_PREREQUISITES`` names, per skill, the checks
 the host runs when the skill is entered; the checks themselves are registered by
 id in ``infrastructure.harness_providers`` by the layer that can answer them.
 An unmet check opens the setup menu below instead of the workflow.
+``SKILL_REQUIRED_CAPABILITIES`` names, per skill, the session capabilities it
+needs; a host that withholds one never starts the skill.
 
 ``prerequisite_section`` is prepended to a gated skill's body, the same way
 success criteria are appended, for the case where setup is still needed after
@@ -16,6 +18,7 @@ from collections.abc import Mapping
 from types import MappingProxyType
 from typing import NamedTuple
 
+from config.constants.capabilities import HOSTED_GATEWAY_CAPABILITY
 from config.constants.github import GITHUB_SETUP_SLASH_INVOKE
 from config.constants.skills import (
     ANALYZING_GITHUB_CI_PERFORMANCE_SKILL_NAME,
@@ -60,6 +63,22 @@ SKILL_PREREQUISITES: Mapping[str, tuple[SkillPrerequisite, ...]] = MappingProxyT
         DELEGATING_GITHUB_CI_REPAIRS_SKILL_NAME: (),
         CONNECTING_SLACK_SKILL_NAME: (_SLACK_CONNECTED,),
     }
+)
+
+#: Skill name -> session capabilities the skill cannot run without. A host that
+#: withholds one (an empty tuple in ``available_capabilities``) refuses entry:
+#: the gateway withholds the hosted-gateway tools, so the shell-only delegate
+#: demo never starts on the gateway it delegates to.
+SKILL_REQUIRED_CAPABILITIES: Mapping[str, tuple[str, ...]] = MappingProxyType(
+    {DELEGATING_GITHUB_CI_REPAIRS_SKILL_NAME: (HOSTED_GATEWAY_CAPABILITY,)}
+)
+
+#: Returned instead of the body when this host withholds a capability the skill
+#: requires. ``{skill}`` is the skill name.
+SKILL_CAPABILITY_WITHHELD = (
+    "`{skill}` runs only in the interactive shell, which delegates to this gateway. "
+    "Do not follow it here: do only what the shell's request asks, with the tools you "
+    "have, and report back. Create no repository the request did not name."
 )
 
 #: Analytics ``reason_code`` for a prerequisite whose credential is missing.
@@ -161,7 +180,9 @@ __all__ = [
     "PREREQUISITE_SKIP_ACTION",
     "PREREQUISITE_SKIP_OPTION",
     "PREREQUISITE_STILL_MISSING_NOTE",
+    "SKILL_CAPABILITY_WITHHELD",
     "SKILL_PREREQUISITES",
+    "SKILL_REQUIRED_CAPABILITIES",
     "SLACK_CONNECTED_CHECK",
     "SkillPrerequisite",
     "prerequisite_section",

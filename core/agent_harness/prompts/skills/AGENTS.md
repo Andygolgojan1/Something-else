@@ -192,6 +192,12 @@ blocked message. A demo picked in the onboarding menu is checked before the
 menu's own follow-up (the demo-repository question), so setup comes first
 there too. Every getting-started skill has a row, even an empty one.
 
+A skill listed in `SKILL_REQUIRED_CAPABILITIES` (same file) is refused on a
+host that withholds one of those capabilities, even when it is already
+active: the body is withheld, the skill stops being active, and the result
+tells the model to report back. The gateway withholds the hosted-gateway
+tools, so the shell-only `delegating-github-ci-repairs` never runs on it.
+
 ## Narrow purpose
 
 The skill has a narrow, concrete purpose.

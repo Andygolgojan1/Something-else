@@ -6,8 +6,9 @@ with no model step and no tool-event render. A skill's entry menu is catalog
 data (``ActionSkill.entry_menu``, built by the loader), never frontmatter; it
 opens here through the real ``ask_user_choice`` executor, so a host-opened menu
 behaves exactly as if the model had called the tool. Before any of that, a
-skill that is not yet active passes its host-owned prerequisite gate
-(``skill_prerequisite_gate``).
+skill that needs a capability this host withholds is refused, even when it is
+already active, and a skill that is not yet active passes its host-owned
+prerequisite gate (``skill_prerequisite_gate``).
 """
 
 from __future__ import annotations
@@ -16,10 +17,14 @@ from collections.abc import Mapping
 from typing import Any
 
 from config.constants.ask_user import AskUserReason
+from config.constants.skill_prerequisites import (
+    SKILL_CAPABILITY_WITHHELD,
+    SKILL_REQUIRED_CAPABILITIES,
+)
 from core.agent_harness.spi.grounding import ActionSkill, SkillEntryMenu
 from core.agent_harness.spi.handoff import question_key
 from core.agent_harness.spi.skill_releases import SkillCatalogSnapshot, active_skill_catalog
-from core.agent_harness.tools import ActionToolScope
+from core.agent_harness.tools import ActionToolScope, capability_not_explicitly_disabled
 from infrastructure.analytics.capture import capture_skill_executed
 from tools.interactive_shell.actions.ask_choice import (
     ask_user_choice_tool,
@@ -105,6 +110,34 @@ def _may_open_menu(session: Any, skill: ActionSkill, *, from_model: bool) -> boo
     return skill.name not in (getattr(session, "skills_already_prompted", None) or set())
 
 
+def _withheld_capability(session: Any, skill_name: str) -> str | None:
+    """The first capability ``skill_name`` needs that this host explicitly withholds."""
+    return next(
+        (
+            capability
+            for capability in SKILL_REQUIRED_CAPABILITIES.get(skill_name, ())
+            if not capability_not_explicitly_disabled(session, capability)
+        ),
+        None,
+    )
+
+
+def _refuse_on_this_host(session: Any, skill_name: str, capability: str) -> dict[str, Any]:
+    """The result for a skill this host cannot run: no body, and no longer the active skill.
+
+    A resumed session may still name it active; clearing that keeps its body
+    out of later answer turns.
+    """
+    if session is not None and getattr(session, "active_skill", None) == skill_name:
+        session.active_skill = None
+    return {
+        "ok": False,
+        "name": skill_name,
+        "error": SKILL_CAPABILITY_WITHHELD.format(skill=skill_name),
+        "withheld_capability": capability,
+    }
+
+
 def enter_skill(
     name: str,
     ctx: Any,
@@ -130,6 +163,9 @@ def enter_skill(
             "available": available,
         }
     session = getattr(ctx, "session", None)
+    withheld = _withheld_capability(session, skill.name)
+    if withheld is not None:
+        return _refuse_on_this_host(session, skill.name, withheld)
     already_active = (
         from_model and session is not None and getattr(session, "active_skill", None) == skill.name
     )
