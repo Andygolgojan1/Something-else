@@ -46,7 +46,7 @@ def _menu_must_not_open(**_kwargs: object) -> str:
 class TestDispatchSlash:
     def test_exit_returns_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
-            "surfaces.interactive_shell.command_registry.system._flush_analytics_on_exit",
+            "surfaces.interactive_shell.runtime.exit_control._flush_analytics_on_exit",
             lambda _console: None,
         )
         session = Session()
@@ -61,7 +61,7 @@ class TestDispatchSlash:
             calls.append("flush")
 
         monkeypatch.setattr(
-            "surfaces.interactive_shell.command_registry.system._flush_analytics_on_exit",
+            "surfaces.interactive_shell.runtime.exit_control._flush_analytics_on_exit",
             _flush,
         )
         session = Session()
