@@ -1,15 +1,13 @@
 ---
 name: Main CI
-description: Fixes failing CI and scheduled workflows on the default branch.
+description: Fixes failing CI on the default branch.
 cron: "58 * * * *"
 mode: agent
 ---
 
 Fix failing CI on the default branch.
 
-1. List failed workflow runs on the default branch, including scheduled runs.
-2. Skip any workflow whose latest run passed.
-3. Pick one failure, read its job logs, and find the root cause.
-4. Skip it if an open pull request already fixes it.
-5. Fix it on a new branch, run the relevant tests locally, and open a pull request.
-6. Never merge, and reply with the pull request link and the root cause.
+1. If an open pull request already repairs the default branch, call fix_github_pr_ci with that pull request's pr_number; once its checks pass, the repair is waiting for a person to merge it.
+2. Otherwise call fix_github_pr_ci with branch set to the default branch; it reports nothing to fix when the latest checks passed.
+3. If it pushed a new repair branch, open a pull request from that branch to the default branch.
+4. Never merge, and reply with the pull request link, the root cause, and whether it awaits a merge.
