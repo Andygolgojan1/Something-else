@@ -147,6 +147,7 @@ def _write_curl_shim(
             out=""
             url=""
             http1=false
+            github_auth_seen=false
             write_out=false
             args=("$@")
             i=0
@@ -161,7 +162,17 @@ def _write_curl_shim(
                   i=$((i + 1))
                   write_out=true
                   ;;
-                -H|--header|--retry|--retry-delay|--connect-timeout|--max-time|-D|--dump-header)
+                -H|--header)
+                  i=$((i + 1))
+                  if [ -n "${{OPENSRE_TEST_EXPECT_GITHUB_TOKEN:-}}" ] \
+                    && [ "${{args[$i]}}" = "Authorization: Bearer ${{OPENSRE_TEST_EXPECT_GITHUB_TOKEN}}" ]; then
+                    github_auth_seen=true
+                  elif printf '%s' "${{args[$i]}}" | grep -q '^Authorization: Bearer '; then
+                    echo "curl-shim: unexpected GitHub authorization header" >&2
+                    exit 1
+                  fi
+                  ;;
+                --retry|--retry-delay|--connect-timeout|--max-time|-D|--dump-header)
                   i=$((i + 1))
                   ;;
                 --http1.1) http1=true ;;
@@ -190,9 +201,15 @@ def _write_curl_shim(
                 echo "metadata requests must not force HTTP/1.1" >&2
                 exit 1
               fi
+              if [ -n "${{OPENSRE_TEST_GITHUB_AUTH_LOG:-}}" ]; then
+                printf 'api %s\n' "$github_auth_seen" >> "$OPENSRE_TEST_GITHUB_AUTH_LOG"
+              fi
               mode="$(tr -d '[:space:]' < "$state")"
               code=200
-              if [ "$mode" = "missing" ]; then
+              if [ "${{OPENSRE_TEST_REQUIRE_GITHUB_AUTH:-}}" = "1" ] \
+                && [ "$github_auth_seen" != true ]; then
+                code=403
+              elif [ "$mode" = "missing" ]; then
                 code=404
               elif [ "$mode" -gt 0 ] 2>/dev/null; then
                 printf '%s\\n' "$((mode - 1))" > "$state"
@@ -210,6 +227,13 @@ def _write_curl_shim(
               exit 0
             fi
             if printf '%s' "$url" | grep -q 'releases/download/'; then
+              if [ -n "${{OPENSRE_TEST_GITHUB_AUTH_LOG:-}}" ]; then
+                printf 'asset %s\n' "$github_auth_seen" >> "$OPENSRE_TEST_GITHUB_AUTH_LOG"
+              fi
+              if [ "$github_auth_seen" != false ]; then
+                echo "curl-shim: GitHub authorization header sent to archive download" >&2
+                exit 1
+              fi
               if [ "$http1" != true ]; then
                 echo "curl: (92) HTTP/2 stream was not closed cleanly" >&2
                 exit 92
@@ -288,6 +312,8 @@ def _run_install_sh(
     _write_curl_shim(shim_bin, assets, url_map, mode=curl_mode)
 
     env = os.environ.copy()
+    env.pop("OPENSRE_INSTALL_CHANNEL", None)
+    env.pop("OPENSRE_INSTALL_GITHUB_TOKEN", None)
     env.pop("OPENSRE_HOME", None)
     env.pop("OPENSRE_WIZARD_STORE_PATH", None)
     env.pop("OPENSRE_INSTALL_MARKER_STATE", None)
@@ -430,6 +456,7 @@ def test_install_sh_source_exposes_env_knobs() -> None:
         "OPENSRE_INSTALL_DIR",
         "OPENSRE_VERSION",
         "OPENSRE_MAIN_RELEASE_TAG",
+        "OPENSRE_INSTALL_GITHUB_TOKEN",
         "OPENSRE_INSTALL_VERBOSE",
         "OPENSRE_INSTALL_REPO",
         'INSTALL_CHANNEL="${OPENSRE_INSTALL_CHANNEL:-main}"',
@@ -635,6 +662,44 @@ def test_install_sh_release_latest_end_to_end(tmp_path: Path) -> None:
         check=False,
     )
     assert "2026.4.29" in version.stdout
+
+
+@pytest.mark.parametrize("channel", ["--main", "--release"])
+def test_install_sh_authenticates_canary_metadata_only(tmp_path: Path, channel: str) -> None:
+    token = "canary-token"
+    auth_log = tmp_path / "github-auth.log"
+    result = _run_install_sh(
+        tmp_path,
+        channel,
+        env_extra={
+            "OPENSRE_INSTALL_GITHUB_TOKEN": token,
+            "OPENSRE_TEST_EXPECT_GITHUB_TOKEN": token,
+            "OPENSRE_TEST_GITHUB_AUTH_LOG": str(auth_log),
+            "OPENSRE_TEST_REQUIRE_GITHUB_AUTH": "1",
+        },
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    auth_calls = auth_log.read_text(encoding="utf-8").splitlines()
+    assert auth_calls[0] == "api true"
+    assert auth_calls[1:]
+    assert all(call == "asset false" for call in auth_calls[1:])
+
+
+def test_install_sh_ignores_ambient_github_token(tmp_path: Path) -> None:
+    auth_log = tmp_path / "github-auth.log"
+    result = _run_install_sh(
+        tmp_path,
+        "--main",
+        env_extra={
+            "GITHUB_TOKEN": "ambient-token",
+            "OPENSRE_TEST_EXPECT_GITHUB_TOKEN": "ambient-token",
+            "OPENSRE_TEST_GITHUB_AUTH_LOG": str(auth_log),
+        },
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert auth_log.read_text(encoding="utf-8").splitlines()[0] == "api false"
 
 
 def test_install_sh_rejects_version_with_main(tmp_path: Path) -> None:
