@@ -35,9 +35,12 @@ from surfaces.interactive_shell.ui.input_prompt.rendering import (
     resolve_prompt_placeholder,
 )
 from surfaces.interactive_shell.ui.input_prompt.style import _build_prompt_style
+from surfaces.interactive_shell.ui.transcript_view import TranscriptControl
 
 _COMPOSER_MAX_EDIT_ROWS = 8
 _COMPOSER_MIN_FRAME_ROWS = 3
+# Larger than any terminal: the transcript takes every row the chrome leaves.
+_TRANSCRIPT_PREFERRED_ROWS = 100_000
 
 
 def _limit_editable_height(main_input: HSplit) -> HSplit:
@@ -71,8 +74,14 @@ def _install_prompt_frame(
     session: PromptSession[str],
     *,
     hide_composer: Callable[[], bool] | None = None,
+    transcript: TranscriptControl | None = None,
 ) -> PromptSession[str]:
     """Wrap only the editable buffer, leaving live status rows above it.
+
+    With ``transcript``, the prompt becomes a full-screen app: the transcript
+    fills the rows above the status line and is redrawn from its store at the
+    current width, so a resize never depends on how the terminal re-wrapped
+    earlier output.
 
     ``hide_composer`` (when given) collapses the composer box and its footer
     while structured input owns the keyboard (confirmation choice, option
@@ -168,10 +177,20 @@ def _install_prompt_frame(
     # (CPR ``_min_available_height`` = rows-below-cursor) stretches the live
     # region to the floor, scrolls the launch banner out of the viewport, and
     # parks Auto/composer at the bottom of a hollow terminal.
-    session.layout.container = HSplit(
-        [framed_input, *root.children[1:]],
-        align=VerticalAlign.TOP,
-    )
+    children: list[AnyContainer] = [framed_input, *root.children[1:]]
+    if transcript is not None:
+        children.insert(
+            0,
+            Window(
+                transcript,
+                height=Dimension(min=0, preferred=_TRANSCRIPT_PREFERRED_ROWS),
+                wrap_lines=False,
+                always_hide_cursor=True,
+            ),
+        )
+        session.app.full_screen = True
+        session.app.renderer.full_screen = True
+    session.layout.container = HSplit(children, align=VerticalAlign.TOP)
     return session
 
 
@@ -179,6 +198,7 @@ def build_prompt_session(
     session: Session | None = None,
     *,
     hide_composer: Callable[[], bool] | None = None,
+    transcript: TranscriptControl | None = None,
 ) -> PromptSession[str]:
     def _default_placeholder() -> FormattedText:
         from surfaces.interactive_shell.ui.input_prompt.rendering import (
@@ -204,8 +224,10 @@ def build_prompt_session(
             style=_build_prompt_style(),
             erase_when_done=True,
             placeholder=placeholder,
+            mouse_support=transcript is not None,
         ),
         hide_composer=hide_composer,
+        transcript=transcript,
     )
 
 
