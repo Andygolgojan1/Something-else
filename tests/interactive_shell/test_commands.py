@@ -224,6 +224,31 @@ class TestDispatchSlash:
         assert picker_called == [True]
         assert buf.getvalue() == ""
 
+    @pytest.mark.parametrize(
+        ("selected", "expected"),
+        [
+            ("/integrations", "/integrations list"),
+            ("/mcp", "/mcp list"),
+        ],
+    )
+    def test_tty_help_runs_explicit_connection_list_command(
+        self, monkeypatch: pytest.MonkeyPatch, selected: str, expected: str
+    ) -> None:
+        import surfaces.interactive_shell.command_registry as command_registry
+        from surfaces.interactive_shell.command_registry import help as help_cmd
+
+        dispatched: list[str] = []
+        monkeypatch.setattr(help_cmd, "repl_tty_interactive", lambda: True)
+        monkeypatch.setattr(help_cmd, "choose_help_command", lambda _sections: selected)
+        monkeypatch.setattr(
+            command_registry,
+            "dispatch_slash",
+            lambda command, _session, _console: dispatched.append(command) or True,
+        )
+
+        assert dispatch_slash("/help", Session(), _capture()[0]) is True
+        assert dispatched == [expected]
+
     def test_bare_slash_previews_all_commands(self) -> None:
         session = Session()
         console, buf = _capture()
@@ -538,11 +563,12 @@ class TestIntegrationsCommand:
         assert "datadog" in output
         assert "github" in output
 
-    def test_list_is_default_when_no_subcommand(self, monkeypatch: object) -> None:
+    def test_bare_command_shows_list_usage(self, monkeypatch: object) -> None:
         self._patch(monkeypatch)
         console, buf = _capture()
         dispatch_slash("/integrations", Session(), console)
-        assert "datadog" in buf.getvalue()
+        assert "usage:" in buf.getvalue()
+        assert "/integrations list" in buf.getvalue()
 
     def test_verify_reports_issues(self, monkeypatch: object) -> None:
         self._patch(monkeypatch)
@@ -741,11 +767,12 @@ class TestMcpCommand:
         dispatch_slash("/mcp list", Session(), console)
         assert "github" in buf.getvalue()
 
-    def test_list_is_default_when_no_subcommand(self, monkeypatch: object) -> None:
+    def test_bare_command_shows_list_usage(self, monkeypatch: object) -> None:
         self._patch(monkeypatch)
         console, buf = _capture()
         dispatch_slash("/mcp", Session(), console)
-        assert "github" in buf.getvalue()
+        assert "usage:" in buf.getvalue()
+        assert "/mcp list" in buf.getvalue()
 
     def test_connect_delegates_to_cli(self, monkeypatch: object) -> None:
         from surfaces.interactive_shell.command_registry import integrations as m
