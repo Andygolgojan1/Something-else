@@ -159,7 +159,14 @@ as a no-op. A no-op run that replies with only its note delivers nothing.
 
 Add `--skill <name>` to run a skill instead of writing the instructions in
 `--prompt`. Each run follows the skill as currently installed, so fixes to the
-skill reach the loop without recreating it.
+skill reach the loop without recreating it. For example, this loop merges the
+base branch into conflicting pull requests every hour and comments on the ones
+that need a person's decision:
+
+```bash
+opensre cron add --kind manual_loop --mode agent --skill fixing-github-merge-conflicts \
+  --owner <owner> --repo <repo> --cron "4 * * * *" --provider interactive_shell
+```
 
 A skill from a public registry works the same way: install it into a folder,
 then pass that folder's path. Keep the `--prompt` short and say what to pick,
