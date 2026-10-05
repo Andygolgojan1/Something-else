@@ -234,4 +234,179 @@ def bound_action_hook() -> Callable[[ToolExecutionRequest, ToolExecutionResult],
     return record
 
 
-__all__ = ["bound_action_hook", "describe_tool_action"]
+#: Characters that end a simple command when unquoted: operators, groups, newlines.
+_SHELL_PUNCTUATION = "();<>|&\n"
+#: Shells whose ``-c`` script holds commands of its own.
+_SHELLS = frozenset({"bash", "dash", "sh", "zsh"})
+#: Wrappers that run the command after them: their flags, then their options that take a
+#: value. Any other option makes the command unknown, so its writes are never claimed.
+_COMMAND_WRAPPERS: dict[str, tuple[frozenset[str], frozenset[str]]] = {
+    "command": (frozenset({"-p"}), frozenset()),
+    "env": (
+        frozenset({"-i", "--ignore-environment"}),
+        frozenset({"-C", "-u", "--chdir", "--unset"}),
+    ),
+    "exec": (frozenset({"-c", "-l"}), frozenset({"-a"})),
+    "nohup": (frozenset(), frozenset()),
+    "sudo": (
+        frozenset({"-E", "-H", "-S", "-n", "--non-interactive", "--preserve-env", "--stdin"}),
+        frozenset({"-g", "-u", "--group", "--user"}),
+    ),
+    "time": (frozenset({"-p", "--portability"}), frozenset({"-f", "-o", "--format", "--output"})),
+}
+#: How deep ``sh -c '…'`` scripts are followed.
+_MAX_SCRIPT_DEPTH = 2
+#: Global ``git`` options that take the next word as their value.
+_GIT_VALUE_OPTIONS = frozenset(
+    {"-C", "-c", "--config-env", "--exec-path", "--git-dir", "--namespace", "--work-tree"}
+)
+_GIT_DRY_RUN = frozenset({"-n", "--dry-run"})
+#: Global ``gh`` options that take the next word as their value.
+_GH_VALUE_OPTIONS = frozenset({"-R", "--repo", "--hostname"})
+#: ``gh <group> <verb>`` commands that change GitHub.
+_GH_WRITE_VERBS: dict[str, frozenset[str]] = {
+    "issue": frozenset({"close", "comment", "create", "edit", "reopen"}),
+    "pr": frozenset({"close", "comment", "create", "edit", "merge", "ready", "reopen", "review"}),
+}
+_GH_API_WRITE_METHODS = frozenset({"DELETE", "PATCH", "POST", "PUT"})
+#: ``gh api`` options that send a body, which makes the default method POST.
+_GH_API_BODY_OPTIONS = frozenset({"-f", "-F", "--field", "--raw-field", "--input"})
+
+
+def call_failed(result: ToolExecutionResult) -> bool:
+    """Whether a call errored or reported ``ok`` or ``success`` false, e.g. a nonzero exit."""
+    details: Mapping[str, Any] = result.details if isinstance(result.details, Mapping) else {}
+    return not _succeeded(result, details)
+
+
+def is_remote_write(request: ToolExecutionRequest, result: ToolExecutionResult) -> bool:
+    """Whether a successful ``shell_run`` or ``github_cli`` call pushed or changed GitHub.
+
+    A ``git push``, a pull-request or issue change (``gh pr create``, ``gh pr
+    comment``, ...) or a ``gh api`` call that sends a write counts when it is the
+    program a shell command runs, including inside ``sh -c '…'``. Reads, failed
+    calls and text that only mentions such a command never count.
+    """
+    if call_failed(result):
+        return False
+    name = request.tool_call.name
+    if name == "github_cli":
+        return _gh_writes(_command_tokens(request.arguments.get("args")))
+    command = request.arguments.get("command")
+    return name == "shell_run" and isinstance(command, str) and _script_writes(command, 0)
+
+
+def _script_writes(script: str, depth: int) -> bool:
+    """Whether a simple command of ``script`` runs a push or a GitHub write."""
+    for words in _simple_commands(script):
+        program, args = _program(words)
+        if program == "git" and _git_pushes(args):
+            return True
+        if program == "gh" and _gh_writes(args):
+            return True
+        if program in _SHELLS and depth < _MAX_SCRIPT_DEPTH:
+            inner = _shell_script(args)
+            if inner and _script_writes(inner, depth + 1):
+                return True
+    return False
+
+
+def _simple_commands(script: str) -> list[list[str]]:
+    """The words of each simple command in ``script``; none when it does not parse."""
+    lexer = shlex.shlex(script, posix=True, punctuation_chars=_SHELL_PUNCTUATION)
+    lexer.whitespace = " \t\r"
+    lexer.whitespace_split = True
+    commands: list[list[str]] = [[]]
+    try:
+        for token in lexer:
+            if token and all(char in _SHELL_PUNCTUATION for char in token):
+                commands.append([])
+            else:
+                commands[-1].append(token)
+    except ValueError:
+        return []
+    return [words for words in commands if words]
+
+
+def _program(words: list[str]) -> tuple[str, list[str]]:
+    """The program a simple command runs, past assignments and wrappers, and its arguments.
+
+    Only wrapper options known to still run the command are skipped, with their
+    values (``env -u NAME``, ``sudo --user=bot``). Any other option, such as
+    ``sudo -l`` or ``env -S``, leaves the program unknown: a write is never
+    claimed for a command that may not have run.
+    """
+    index = 0
+    while index < len(words):
+        word = words[index]
+        program = word.rsplit("/", 1)[-1]
+        index += 1
+        if _ENV_ASSIGNMENT.match(word):
+            continue
+        options = _COMMAND_WRAPPERS.get(program)
+        if options is None:
+            return program, words[index:]
+        flags, value_options = options
+        while index < len(words) and words[index].startswith("-"):
+            option, _, attached = words[index].partition("=")
+            index += 1
+            if option == "--":
+                break
+            if option in value_options:
+                index += 0 if attached else 1
+            elif option not in flags or attached:
+                return "", []
+    return "", []
+
+
+def _shell_script(args: list[str]) -> str:
+    """The script a shell runs with ``-c`` (options such as ``-e`` may come first), else ""."""
+    for index, word in enumerate(args):
+        if not word.startswith("-"):
+            return ""
+        if not word.startswith("--") and "c" in word[1:]:
+            return args[index + 1] if index + 1 < len(args) else ""
+    return ""
+
+
+def _git_pushes(args: list[str]) -> bool:
+    """``git [global options] push`` without a dry run."""
+    index = 0
+    while index < len(args) and args[index].startswith("-"):
+        index += 2 if args[index] in _GIT_VALUE_OPTIONS else 1
+    if index >= len(args) or args[index] != "push":
+        return False
+    return not _GIT_DRY_RUN.intersection(args[index + 1 :])
+
+
+def _gh_writes(args: list[str]) -> bool:
+    """``gh`` arguments that change GitHub: a pull-request or issue write, or an API write."""
+    positionals: list[str] = []
+    method = ""
+    sends_body = False
+    index = 0
+    while index < len(args):
+        token = args[index]
+        if token in ("-X", "--method"):
+            method = args[index + 1].upper() if index + 1 < len(args) else ""
+            index += 2
+            continue
+        if token in _GH_VALUE_OPTIONS:
+            index += 2
+            continue
+        if token.startswith("--method="):
+            method = token.split("=", 1)[1].upper()
+        elif token in _GH_API_BODY_OPTIONS or token.startswith(("--field=", "--raw-field=")):
+            sends_body = True
+        elif not token.startswith("-"):
+            positionals.append(token)
+        index += 1
+    if not positionals:
+        return False
+    if positionals[0] == "api":
+        return method in _GH_API_WRITE_METHODS or (sends_body and not method)
+    verbs = _GH_WRITE_VERBS.get(positionals[0], frozenset())
+    return len(positionals) > 1 and positionals[1] in verbs
+
+
+__all__ = ["bound_action_hook", "call_failed", "describe_tool_action", "is_remote_write"]

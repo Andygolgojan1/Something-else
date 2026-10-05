@@ -422,3 +422,163 @@ def test_delivery_retry_does_not_execute_work_again(
     assert run_task_now(task.id, runners, only_failed=True)
     assert calls == ["repair"]
     assert get_runs(task.id)[0].report == "Fixed commit abc"
+
+
+@pytest.mark.parametrize(
+    "stateless, reply, command, result, status, error_kind, delivered",
+    [
+        (True, "NO_ACTION", None, None, "noop", "", ""),
+        (True, "`NO_ACTION`", None, None, "noop", "", ""),
+        # A failed read, even a plain nonzero exit, means nothing vouches for "nothing to do".
+        (
+            True,
+            "NO_ACTION",
+            "gh pr list --json number",
+            "exit 1",
+            "incomplete",
+            "report_missing",
+            "",
+        ),
+        (
+            True,
+            "NO_ACTION",
+            "gh pr list --json number",
+            "error",
+            "incomplete",
+            "report_missing",
+            "",
+        ),
+        (True, "Pushed the fix.", "git push origin fix", "ok", "succeeded", "", "Pushed the fix."),
+        (
+            True,
+            "Pushed the fix.",
+            "git push origin fix",
+            "exit 1",
+            "incomplete",
+            "work_unverified",
+            "Pushed the fix.",
+        ),
+        (
+            True,
+            "Looked around.",
+            "git status",
+            "ok",
+            "incomplete",
+            "work_unverified",
+            "Looked around.",
+        ),
+        # Without --stateless the idle word is ordinary prose and proves nothing.
+        (False, "NO_ACTION", None, None, "incomplete", "work_unverified", "NO_ACTION"),
+    ],
+)
+def test_a_stateless_tick_is_judged_by_what_its_tools_changed(
+    stateless: bool,
+    reply: str,
+    command: str | None,
+    result: str | None,
+    status: str,
+    error_kind: str,
+    delivered: str,
+) -> None:
+    from types import SimpleNamespace
+    from typing import Any
+
+    from core.llm.types import ToolCall
+    from core.tool import SideEffectLevel
+    from core.tool.contracts import RegisteredTool
+    from core.tool.execution import ToolExecutionHooks, execute_tool_calls
+    from integrations.scheduled_outcomes import ScheduledOutcomes
+
+    def shell(**_kwargs: Any) -> dict[str, Any]:
+        if result == "error":
+            return {"error": "gh: authentication failed"}
+        return {"ok": result == "ok"}
+
+    outcomes = ScheduledOutcomes(bound_target=False, stateless=stateless)
+    if command is not None:
+        execute_tool_calls(
+            [ToolCall(id="shell", name="shell_run", input={"command": command})],
+            [
+                RegisteredTool(
+                    name="shell_run",
+                    description="Run a shell command",
+                    input_schema={"type": "object", "properties": {}},
+                    source="system",
+                    run=shell,
+                    side_effect_level=SideEffectLevel.MUTATING,
+                )
+            ],
+            {},
+            hooks=ToolExecutionHooks(after_tool_call=outcomes.observe),
+        )
+    report = outcomes.report(
+        SimpleNamespace(
+            primary_response_text=reply,
+            cancelled=False,
+            action_result=SimpleNamespace(hit_iteration_cap=False),
+        ),
+        agent_mode=True,
+    )
+
+    assert report.outcome.status.value == status
+    assert report.outcome.error_kind == error_kind
+    assert report == delivered
+    if status == "succeeded":
+        assert report.outcome.evidence == {"actions": ["shell_run git push origin fix"]}
+
+
+def test_a_stateless_write_is_work_even_beside_a_tool_reported_no_op() -> None:
+    """A sweep whose repair tool found nothing on one PR still commented on another."""
+    from types import SimpleNamespace
+    from typing import Any
+
+    from core.llm.types import ToolCall
+    from core.tool import SideEffectLevel
+    from core.tool.contracts import RegisteredTool
+    from core.tool.execution import ToolExecutionHooks, execute_tool_calls
+    from integrations.github.repair_outcomes import attach_repair_outcome
+    from integrations.scheduled_outcomes import ScheduledOutcomes
+
+    def no_failing_checks() -> dict[str, Any]:
+        return attach_repair_outcome({"error_kind": "no_failing_checks"}, operation="ci:o/r:41")
+
+    def comment(**_kwargs: Any) -> dict[str, Any]:
+        return {"ok": True, "stdout": "https://github.com/o/r/pull/42#issuecomment-1"}
+
+    outcomes = ScheduledOutcomes(bound_target=False, stateless=True)
+    execute_tool_calls(
+        [
+            ToolCall(id="repair", name="fix_github_pr_ci", input={}),
+            ToolCall(id="comment", name="github_cli", input={"args": ["pr", "comment", "42"]}),
+        ],
+        [
+            RegisteredTool(
+                name="fix_github_pr_ci",
+                description="Repair",
+                input_schema={"type": "object", "properties": {}},
+                source="github",
+                run=no_failing_checks,
+            ),
+            RegisteredTool(
+                name="github_cli",
+                description="gh",
+                input_schema={"type": "object", "properties": {}},
+                source="github",
+                run=comment,
+                side_effect_level=SideEffectLevel.MUTATING,
+            ),
+        ],
+        {},
+        hooks=ToolExecutionHooks(after_tool_call=outcomes.observe),
+    )
+    report = outcomes.report(
+        SimpleNamespace(
+            primary_response_text="Commented on PR #42.",
+            cancelled=False,
+            action_result=SimpleNamespace(hit_iteration_cap=False),
+        ),
+        agent_mode=True,
+    )
+
+    assert report.outcome.status.value == "succeeded"
+    assert report.outcome.evidence["actions"] == ["github_cli pr comment 42"]
