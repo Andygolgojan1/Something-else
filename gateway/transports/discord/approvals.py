@@ -8,6 +8,7 @@ message components on the prompt, and click routing back to the broker.
 from __future__ import annotations
 
 import logging
+import uuid
 from collections.abc import Mapping
 from typing import Any
 
@@ -18,9 +19,14 @@ from gateway.core.middleware.approvals import (
     DENY_ACTION_ID,
     MAX_APPROVAL_WAIT_SECONDS,
     ApprovalBroker,
-    arguments_preview,
+    approval_arguments_preview,
+    approval_review_pages,
 )
-from gateway.transports.discord.client import edit_message, send_message_with_components
+from gateway.transports.discord.client import (
+    edit_message,
+    send_message,
+    send_message_with_components,
+)
 
 logger = logging.getLogger("gateway")
 
@@ -47,20 +53,35 @@ class DiscordApprovalPrompter:
         arguments: Mapping[str, Any],
         expiry_seconds: float,
     ) -> tuple[bool, str]:
+        preview = approval_arguments_preview(arguments)
+        if not preview.fields_visible:
+            return (False, "")
+        review_id = uuid.uuid4().hex
+        for page in approval_review_pages(preview, review_id=review_id):
+            if (
+                send_message(
+                    channel_id=self._channel_id,
+                    content=page,
+                    bot_token=self._bot_token,
+                )
+                is None
+            ):
+                return (False, "")
         approval_id = self._broker.create(
             platform="discord",
             chat_id=self._channel_id,
         )
-        preview = arguments_preview(arguments)
-        body = f"**Approval needed — `{tool_name}`**"
+        body = f"**Approval needed — `{tool_name[:200]}`**"
         if reason.strip():
-            body += f"\n{reason.strip()}"
-        if preview:
-            body += f"\n```\n{preview}\n```"
+            body += f"\n{reason.strip()[:500]}"
+        if preview.text:
+            body += f"\n```\n{preview.text}\n```"
+        if preview.truncated:
+            body += f"\nReview complete argument pages {review_id} before approving."
         components = _approval_components(approval_id)
         message_id = send_message_with_components(
             channel_id=self._channel_id,
-            content=body[:2000],
+            content=body,
             components=components,
             bot_token=self._bot_token,
         )

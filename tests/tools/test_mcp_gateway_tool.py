@@ -205,7 +205,48 @@ def test_discovery_redaction_preserves_original_policy_names() -> None:
         {
             "name": alias,
             "description": "Echo [redacted]",
-            "input_schema": {"description": "[redacted]"},
+            "schema_omitted": "Schema omitted because credential redaction would alter its contract.",
             "access": "read_only",
         }
     ]
+
+
+def test_discovery_omits_oversized_schemas_and_preserves_other_contracts() -> None:
+    import json
+
+    client = MagicMock()
+    client.config.auth_token = "secret-token"
+    client.config.read_only_tools = ()
+    schema = {"type": "object", "properties": {"query": {"type": "string"}}}
+    client.list_tools.return_value = [
+        {"name": "huge", "description": "", "input_schema": {"description": "x" * 2000000}},
+        *[
+            {"name": f"tool_{i}", "description": "", "input_schema": {"description": "x" * 7000}}
+            for i in range(8)
+        ],
+        {"name": "query", "description": "", "input_schema": schema},
+    ]
+    result = list_mcp_gateway_tools(include_schema=True, _mcp_gateway_client=client)
+    assert len(json.dumps(result)) < 64000
+    assert "input_schema" not in result["tools"][0]
+    assert "size limit" in result["tools"][0]["schema_omitted"]
+    assert any("budget" in item.get("schema_omitted", "") for item in result["tools"])
+    assert result["tools"][-1]["input_schema"] == schema
+
+
+def test_discovery_withholds_credentials_in_required_fields_without_rewriting_them() -> None:
+    client = MagicMock()
+    client.config.auth_token = "status"
+    client.config.read_only_tools = ()
+    schema = {
+        "type": "object",
+        "properties": {"status_code": {"type": "integer"}},
+        "required": ["status_code"],
+    }
+    client.list_tools.return_value = [{"name": "check", "description": "", "input_schema": schema}]
+    result = list_mcp_gateway_tools(include_schema=True, _mcp_gateway_client=client)
+    item = result["tools"][0]
+    assert "input_schema" not in item
+    assert "redaction" in item["schema_omitted"]
+    assert "status" not in repr(result)
+    assert schema["required"] == ["status_code"]

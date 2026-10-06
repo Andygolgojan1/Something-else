@@ -7,14 +7,14 @@ from typing import Any
 from core.domain.types.tools import ToolSurface
 from core.tool import ERROR_KIND_REFUSED, SideEffectLevel, report_run_error
 from core.tool_framework import tool
-from core.tool_framework.utils import build_mcp_tool_listing, unavailable_response
+from core.tool_framework.utils import unavailable_response
 from integrations.mcp_gateway.client import McpGatewayClient
 from integrations.mcp_gateway.config import build_mcp_gateway_config
+from integrations.mcp_gateway.discovery import gateway_tool_listing
 from integrations.mcp_gateway.errors import (
     McpGatewayRefused,
     McpGatewayRequestError,
 )
-from integrations.mcp_gateway.redaction import public_tool_name, scrub_configured_token
 
 _COMPONENT = "integrations.mcp_gateway.tools.gateway"
 _INJECTED_PARAMS = ("_mcp_gateway_client",)
@@ -212,36 +212,13 @@ def list_mcp_gateway_tools(
         payload["tools"] = []
         return payload
 
-    visible_descriptors: list[dict[str, object]] = []
-    for descriptor in descriptors:
-        visible_descriptors.append(
-            {
-                "name": public_tool_name(descriptor["name"], _mcp_gateway_client.config.auth_token),
-                "description": scrub_configured_token(
-                    descriptor["description"], _mcp_gateway_client.config.auth_token
-                ),
-                "input_schema": scrub_configured_token(
-                    descriptor["input_schema"], _mcp_gateway_client.config.auth_token
-                ),
-            }
-        )
-    listing = build_mcp_tool_listing(
-        visible_descriptors,
+    listing = gateway_tool_listing(
+        descriptors,
+        auth_token=_mcp_gateway_client.config.auth_token,
+        read_only_tools=_mcp_gateway_client.config.read_only_tools,
         name_filter=(name_filter or "").strip() or None,
         include_schema=bool(include_schema),
-        filter_example="status restart",
     )
-    read_only_names = {
-        public_tool_name(name, _mcp_gateway_client.config.auth_token)
-        for name in _mcp_gateway_client.config.read_only_tools
-    }
-    tools = listing.get("tools")
-    if isinstance(tools, list):
-        for item in tools:
-            if isinstance(item, dict):
-                item["access"] = (
-                    "read_only" if item.get("name") in read_only_names else "approval_required"
-                )
     return {"source": "mcp_gateway", "available": True, **listing}
 
 

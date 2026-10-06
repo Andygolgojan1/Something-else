@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from rich.console import Console
 
@@ -67,7 +69,20 @@ class _ShellApproval:
         )
         if not preview.fields_visible:
             return BeforeToolCallResult(blocked=True, reason=preview.text)
-        approved = self._user_approves(request, preview.text if request.arguments else "")
+        if preview.truncated:
+            # Keep the complete evidence accessible throughout confirmation,
+            # without flooding the terminal or retaining credentials afterward.
+            with TemporaryDirectory(prefix="opensre-approval-") as review_dir:
+                review_path = Path(review_dir) / "arguments.json"
+                review_path.write_text(preview.full_text, encoding="utf-8")
+                review_path.chmod(0o600)
+                self.console.print(
+                    f"Review the complete redacted arguments before approving: {review_path}",
+                    markup=False,
+                )
+                approved = self._user_approves(request, preview.text)
+        else:
+            approved = self._user_approves(request, preview.text if request.arguments else "")
         if not approved:
             return _declined(tool_name)
 

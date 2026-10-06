@@ -8,6 +8,7 @@ an Approve / Deny inline keyboard, and callback_query routing back to the broker
 from __future__ import annotations
 
 import logging
+import uuid
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -16,7 +17,8 @@ from gateway.core.middleware.approvals import (
     DENY_ACTION_ID,
     MAX_APPROVAL_WAIT_SECONDS,
     ApprovalBroker,
-    arguments_preview,
+    approval_arguments_preview,
+    approval_review_pages,
 )
 from gateway.transports.telegram.poller.client import TelegramBotClient
 from gateway.transports.telegram.settings import TelegramCallbackQuery
@@ -46,16 +48,25 @@ class TelegramApprovalPrompter:
         arguments: Mapping[str, Any],
         expiry_seconds: float,
     ) -> tuple[bool, str]:
+        preview = approval_arguments_preview(arguments)
+        if not preview.fields_visible:
+            return (False, "")
+        review_id = uuid.uuid4().hex
+        for page in approval_review_pages(preview, review_id=review_id):
+            ok, _, review_message_id = self._client.send_message(self._chat_id, page)
+            if not ok or not review_message_id:
+                return (False, "")
         approval_id = self._broker.create(
             platform="telegram",
             chat_id=self._chat_id,
         )
-        body = f"🔒 Approval needed — `{tool_name}`"
+        body = f"🔒 Approval needed — `{tool_name[:200]}`"
         if reason.strip():
-            body += f"\n{reason.strip()}"
-        preview = arguments_preview(arguments)
-        if preview:
-            body += f"\n```\n{preview}\n```"
+            body += f"\n{reason.strip()[:500]}"
+        if preview.text:
+            body += f"\n```\n{preview.text}\n```"
+        if preview.truncated:
+            body += f"\nReview complete argument pages {review_id} before approving."
         ok, error, message_id = self._client.send_message(
             self._chat_id,
             body,

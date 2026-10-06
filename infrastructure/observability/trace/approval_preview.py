@@ -13,14 +13,22 @@ from infrastructure.observability.trace.redaction import redact_sensitive
 _TRUNCATED = "… [truncated]"
 _MIN_VALUE_CHARS = 16
 _TOO_MANY_FIELDS = "Too many argument fields to review safely; reduce the payload."
+_MAX_REVIEW_CHARS = 64_000
+_TOO_LARGE = "Arguments exceed the complete review limit; reduce the payload."
 
 
 @dataclass(frozen=True)
 class ApprovalPreview:
-    """Display text and whether every argument field remains represented."""
+    """Bounded summary and complete redacted evidence required for authorization."""
 
     text: str
     fields_visible: bool
+    full_text: str = ""
+
+    @property
+    def truncated(self) -> bool:
+        """Whether the summary alone is insufficient to authorize the call."""
+        return bool(self.full_text and self.text != self.full_text)
 
 
 def _map_values(value: Any, transform: Callable[[str], str]) -> Any:
@@ -53,15 +61,18 @@ def format_approval_preview(
         safe = redact_sensitive(value)
         if scrub_text is not None:
             safe = _map_values(safe, scrub_text)
-        text = json.dumps(safe, ensure_ascii=False, default=str)
+        text = json.dumps(safe, ensure_ascii=True).replace("`", "\\u0060")
+        if len(text) > _MAX_REVIEW_CHARS:
+            return ApprovalPreview(_TOO_LARGE[:max_chars], fields_visible=False)
         if len(text) <= max_chars:
-            return ApprovalPreview(text, fields_visible=True)
+            return ApprovalPreview(text, fields_visible=True, full_text=text)
+        full_text = text
         limit = max(_MIN_VALUE_CHARS, max_chars // 2)
         while True:
             compact = _map_values(safe, partial(_shorten, limit=limit))
-            text = json.dumps(compact, ensure_ascii=False, default=str)
+            text = json.dumps(compact, ensure_ascii=True).replace("`", "\\u0060")
             if len(text) <= max_chars:
-                return ApprovalPreview(text, fields_visible=True)
+                return ApprovalPreview(text, fields_visible=True, full_text=full_text)
             if limit == _MIN_VALUE_CHARS:
                 break
             limit = max(_MIN_VALUE_CHARS, limit // 2)

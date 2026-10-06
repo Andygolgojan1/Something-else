@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import io
+import json
+import os
+import re
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 from rich.console import Console
@@ -35,7 +39,7 @@ def _request(tool_name: str, arguments: dict[str, object] | None = None) -> Tool
 
 def _console() -> tuple[Console, io.StringIO]:
     buffer = io.StringIO()
-    return Console(file=buffer, force_terminal=False), buffer
+    return Console(file=buffer, force_terminal=False, width=10000), buffer
 
 
 def test_stop_is_not_asked_at_the_default_allow_all_level() -> None:
@@ -197,6 +201,13 @@ def test_large_arguments_can_reach_operator_confirmation(tool_name: str) -> None
 
     def confirm(prompt: str) -> str:
         asked.append(prompt)
+        path_match = re.search(r"before approving: (.+arguments.json)", printed.getvalue())
+        assert path_match is not None
+        review_path = Path(path_match.group(1))
+        complete = json.loads(review_path.read_text())
+        assert complete == arguments
+        if os.name == "posix":
+            assert review_path.stat().st_mode & 0o777 == 0o600
         return "y"
 
     hooks = with_shell_approval(
@@ -216,6 +227,8 @@ def test_large_arguments_can_reach_operator_confirmation(tool_name: str) -> None
     assert len(shown) < 4500
     if tool_name == "call_mcp_gateway_tool":
         assert '"service": "prod"' in shown
+    review_files = re.findall(r"before approving: (.+arguments.json)", printed.getvalue())
+    assert all(not Path(path).exists() for path in review_files)
 
 
 @pytest.mark.parametrize("is_tty", [True, False])

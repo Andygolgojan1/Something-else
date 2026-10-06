@@ -450,7 +450,7 @@ class _Approvals:
             )
         reason = str(getattr(tool, "approval_reason", "") or "")
         self._session.pending_user_choice = approval_question(
-            name, request.arguments, reason, preview.text, schema=schema
+            name, request.arguments, reason, preview.full_text, schema=schema
         )
         return BeforeToolCallResult(
             blocked=True,

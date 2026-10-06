@@ -154,7 +154,7 @@ class ApprovalPrompter(Protocol):
         arguments: Mapping[str, Any],
         expiry_seconds: float,
     ) -> tuple[bool, str]:
-        """Return (approved, id of the member who decided; empty when expired)."""
+        """Publish complete redacted arguments before accepting an approval decision."""
 
 
 def approval_tool_hooks(prompter: ApprovalPrompter) -> ToolExecutionHooks:
@@ -203,6 +203,19 @@ def arguments_preview(arguments: Mapping[str, Any]) -> str:
     return approval_arguments_preview(arguments).text
 
 
+def approval_review_pages(preview: ApprovalPreview, *, review_id: str) -> list[str]:
+    """Complete evidence in bounded pages, to publish before approval controls."""
+    if not preview.truncated:
+        return []
+    # ASCII JSON makes platform character limits predictable and escapes control
+    # characters. Never use the assistant-output splitters, which drop whitespace.
+    chunks = [preview.full_text[i : i + 1500] for i in range(0, len(preview.full_text), 1500)]
+    return [
+        f"Complete redacted arguments {review_id} ({i}/{len(chunks)}):\n```\n{chunk}\n```"
+        for i, chunk in enumerate(chunks, 1)
+    ]
+
+
 __all__ = [
     "APPROVE_ACTION_ID",
     "ARGS_PREVIEW_LIMIT",
@@ -211,6 +224,7 @@ __all__ = [
     "ApprovalBroker",
     "ApprovalPrompter",
     "approval_arguments_preview",
+    "approval_review_pages",
     "approval_tool_hooks",
     "arguments_preview",
 ]

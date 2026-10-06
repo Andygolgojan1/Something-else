@@ -10,6 +10,7 @@ resulting ``block_actions`` click back to the broker.
 from __future__ import annotations
 
 import logging
+import uuid
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -18,6 +19,8 @@ from gateway.core.middleware.approvals import (
     DENY_ACTION_ID,
     MAX_APPROVAL_WAIT_SECONDS,
     ApprovalBroker,
+    approval_arguments_preview,
+    approval_review_pages,
     arguments_preview,
 )
 from gateway.transports.slack.client import SlackMessagingClient
@@ -50,6 +53,21 @@ class ThreadApprovalPrompter:
         expiry_seconds: float,
     ) -> tuple[bool, str]:
         """Ask the thread for approval; returns (approved, decided_by user id)."""
+        preview = approval_arguments_preview(arguments)
+        if not preview.fields_visible:
+            return (False, "")
+        review_id = uuid.uuid4().hex
+        for page in approval_review_pages(preview, review_id=review_id):
+            if (
+                self._client.post_message(
+                    channel=self._channel_id,
+                    text=page,
+                    thread_ts=self._thread_ts,
+                    blocks=[{"type": "section", "text": {"type": "plain_text", "text": page}}],
+                )
+                is None
+            ):
+                return (False, "")
         approval_id = self._broker.create(
             platform="slack",
             chat_id=self._channel_id,
@@ -57,9 +75,9 @@ class ThreadApprovalPrompter:
         prompt_text = _prompt_text(tool_name, reason)
         message_ts = self._client.post_message(
             channel=self._channel_id,
-            text=f"Approval needed: {tool_name} — approve or deny in Slack.",
+            text=f"Approval needed: {tool_name} — review {review_id} and approve or deny in Slack.",
             thread_ts=self._thread_ts,
-            blocks=_prompt_blocks(approval_id, prompt_text, arguments),
+            blocks=_prompt_blocks(approval_id, prompt_text, arguments, review_id=review_id),
         )
         if message_ts is None:
             # No buttons on screen means nobody can approve: fail closed.
@@ -128,9 +146,9 @@ def handle_block_actions_payload(
 
 
 def _prompt_text(tool_name: str, reason: str) -> str:
-    line = f":lock: *Approval needed — `{tool_name}`*"
+    line = f":lock: *Approval needed — `{tool_name[:200]}`*"
     if reason.strip():
-        line += f"\n{reason.strip()}"
+        line += f"\n{reason.strip()[:500]}"
     return line
 
 
@@ -138,9 +156,13 @@ def _prompt_blocks(
     approval_id: str,
     prompt_text: str,
     arguments: Mapping[str, Any],
+    *,
+    review_id: str,
 ) -> list[dict[str, Any]]:
     preview = arguments_preview(arguments)
     section_text = prompt_text if not preview else f"{prompt_text}\n```{preview}```"
+    if approval_arguments_preview(arguments).truncated:
+        section_text += f"\nReview complete argument pages {review_id} before approving."
     return [
         {"type": "section", "text": {"type": "mrkdwn", "text": section_text}},
         {

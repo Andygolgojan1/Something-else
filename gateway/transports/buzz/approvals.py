@@ -16,13 +16,15 @@ channel it was posted to — see
 from __future__ import annotations
 
 import logging
+import uuid
 from collections.abc import Mapping
 from typing import Any
 
 from gateway.core.middleware.approvals import (
     MAX_APPROVAL_WAIT_SECONDS,
     ApprovalBroker,
-    arguments_preview,
+    approval_arguments_preview,
+    approval_review_pages,
 )
 from gateway.transports.buzz.pending_approvals import PendingApprovals
 from integrations.buzz import BuzzClient
@@ -56,13 +58,22 @@ class BuzzApprovalPrompter:
         arguments: Mapping[str, Any],
         expiry_seconds: float,
     ) -> tuple[bool, str]:
+        preview = approval_arguments_preview(arguments)
+        if not preview.fields_visible:
+            return (False, "")
+        review_id = uuid.uuid4().hex
+        for page in approval_review_pages(preview, review_id=review_id):
+            result = self._client.send_message(channel=self._channel_id, content=page)
+            if not result["success"]:
+                return (False, "")
         approval_id = self._broker.create(platform="buzz", chat_id=self._channel_id)
-        preview = arguments_preview(arguments)
-        body = f"**Approval needed — `{tool_name}`**"
+        body = f"**Approval needed — `{tool_name[:200]}`**"
         if reason.strip():
-            body += f"\n{reason.strip()}"
-        if preview:
-            body += f"\n```\n{preview}\n```"
+            body += f"\n{reason.strip()[:500]}"
+        if preview.text:
+            body += f"\n```\n{preview.text}\n```"
+        if preview.truncated:
+            body += f"\nReview complete argument pages {review_id} before approving."
         body += (
             f"\n\n`{self._requester_pubkey[:8]}…` — reply **approve** or **deny** "
             "to this message. Only you can answer it."

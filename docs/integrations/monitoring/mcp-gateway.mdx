@@ -85,3 +85,7 @@ The test starts the sample server, discovers both tools, calls the certified rea
 | Connection timed out | Confirm network reachability and that the server completes initialization within 30 seconds |
 
 If a server tool name contains the configured authentication token, discovery shows a stable credential-safe alias. Calls using that alias resolve to the original name before exact-name allowlist and read-only checks. Configure policies using the original server names.
+
+Discovery omits schemas that exceed its size budget or contain the configured authentication token. Check the per-tool omission notice; reduce the server schema or remove the credential from its schema before requesting it again.
+
+Before approving a long mutation, review the complete redacted arguments. The shell provides a temporary JSON file while confirmation is pending; chat sends numbered review pages before the approval controls. If complete review cannot be delivered or the arguments exceed 64,000 serialized characters, reduce the payload and try again.

@@ -23,6 +23,10 @@ def test_large_values_cannot_hide_later_nested_fields_or_list_targets() -> None:
     assert set(shown["arguments"]) == set(arguments["arguments"])
     assert "sample-token" not in preview.text
     assert "[truncated]" in shown["arguments"]["padding"]
+    assert preview.truncated
+    full = json.loads(preview.full_text)
+    assert full["arguments"]["padding"] == arguments["arguments"]["padding"]
+    assert "sample-token" not in preview.full_text
     assert arguments["arguments"]["padding"] == "x" * 10000
 
 
@@ -31,3 +35,10 @@ def test_structure_that_cannot_fit_is_explicitly_unreviewable() -> None:
     assert not preview.fields_visible
     assert len(preview.text) <= 400
     assert "fields" in preview.text
+
+
+def test_review_limit_and_non_json_values_never_authorize_partial_evidence() -> None:
+    for value in ({"query": "x" * 64000}, {"code": object()}):
+        preview = format_approval_preview(value, max_chars=400)
+        assert not preview.fields_visible
+        assert not preview.full_text
