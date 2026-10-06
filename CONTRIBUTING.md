@@ -119,7 +119,7 @@ verification) follow [docs/adding-tools-and-integrations.md](docs/adding-tools-a
 - **No Inline Tests:** Avoid adding `*_test.py` files directly inside source packages. We are phasing out existing inline tests to keep the core logic clean.
 - Bug fixes should include a test that would have caught the bug
 - New features should have corresponding tests
-- Cover the changed behavior and meaningful failure modes; aim for >80% code coverage using the report produced on `main`.
+- Cover the changed behavior and meaningful failure modes. The coverage report on `main` is post-merge feedback, not a pre-merge percentage gate.
 
 ### 4. Validate the Change
 

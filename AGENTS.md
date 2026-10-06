@@ -57,8 +57,9 @@ into the skill.
 ## CI failures and tests (mandatory — every PR / push)
 
 Follow [CI.md §2](CI.md#2-focused-tests-and-complete-ci) for minimal local
-validation and [CI.md §8](CI.md#8-post-pr-follow-through) for CI monitoring,
-review remediation, and post-merge follow-through. Do not treat "pushed a fix"
+validation and [CI.md §8](CI.md#8-post-pr-follow-through) for CI monitoring
+and review remediation. Follow [CI.md §4](CI.md#4-pull-request-latency-and-post-merge-validation)
+for post-merge follow-through. Do not treat "pushed a fix"
 or "opened a PR" as done. Do not duplicate the installed push gate or the
 complete PR pipeline with a manual local checklist.
 
