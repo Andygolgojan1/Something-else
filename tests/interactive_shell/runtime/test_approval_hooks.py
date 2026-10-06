@@ -108,7 +108,7 @@ def test_requires_approval_metadata_prompts_at_default_auto_level() -> None:
             "call_mcp_gateway_tool",
             {
                 "tool_name": "restart_service",
-                "arguments": {"service": "prod", "api_token": "super-secret"},
+                "arguments": {"service": "prod", "api_token": "test-credential-with-long-value"},
             },
         )
     )
@@ -119,7 +119,7 @@ def test_requires_approval_metadata_prompts_at_default_auto_level() -> None:
     assert len(asked) == 1
     assert "restart_service" in printed.getvalue()
     assert '"service": "prod"' in printed.getvalue()
-    assert "super-secret" not in printed.getvalue()
+    assert "test-credential-with-long-value" not in printed.getvalue()
 
 
 def test_generated_code_asks_at_every_auto_level() -> None:
@@ -131,8 +131,15 @@ def test_generated_code_asks_at_every_auto_level() -> None:
     [
         ({"private_key": "opaque-private-value"}, ("opaque-private-value",)),
         (
-            {"items": [{"header": "Bearer super-secret", "value": "sk-test-secret"}]},
-            ("super-secret", "sk-test-secret"),
+            {
+                "items": [
+                    {
+                        "header": "Bearer test-credential-with-long-value",
+                        "value": "sk-testcredentialtestcredential",
+                    }
+                ]
+            },
+            ("test-credential-with-long-value", "sk-testcredentialtestcredential"),
         ),
         (
             {"body": "-----BEGIN PRIVATE KEY-----\nkey-material\n-----END PRIVATE KEY-----"},

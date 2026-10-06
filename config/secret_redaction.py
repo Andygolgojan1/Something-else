@@ -30,10 +30,10 @@ def _build_default_rules() -> tuple[RedactionRule, ...]:
         ("github_pat_classic", r"ghp_[A-Za-z0-9]{36}", "[REDACTED:github_pat]"),
         ("github_pat_fine", r"github_pat_[A-Za-z0-9_]{82}", "[REDACTED:github_pat]"),
         ("anthropic_key", r"sk-ant-[A-Za-z0-9_\-]{40,}", "[REDACTED:anthropic_key]"),
-        ("openai_key", r"sk-(?!ant-)[A-Za-z0-9_\-]{6,}", "[REDACTED:openai_key]"),
+        ("openai_key", r"\bsk-(?!ant-)[A-Za-z0-9_\-]{20,}", "[REDACTED:openai_key]"),
         ("slack_token", r"xox[bopas]-[A-Za-z0-9-]{10,}", "[REDACTED:slack_token]"),
         ("stripe_key", r"sk_(?:live|test)_[A-Za-z0-9]{24,}", "[REDACTED:stripe_key]"),
-        ("bearer", r"(?i)\bbearer\s+[A-Za-z0-9._~+/-]+=*", "Bearer [REDACTED]"),
+        ("bearer", r"(?i)\bbearer\s+[A-Za-z0-9._~+/-]{16,}=*", "Bearer [REDACTED]"),
         (
             "jwt",
             r"eyJ[A-Za-z0-9_\-]{8,}\.eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}",
