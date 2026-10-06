@@ -5,6 +5,7 @@ from surfaces.interactive_shell.ui.transcript_view.store import (
     TranscriptEntry,
     TranscriptStore,
     render_for_scrollback,
+    render_text,
 )
 from surfaces.interactive_shell.ui.transcript_view.tee import record_startup_output
 
@@ -14,4 +15,5 @@ __all__ = [
     "TranscriptStore",
     "record_startup_output",
     "render_for_scrollback",
+    "render_text",
 ]

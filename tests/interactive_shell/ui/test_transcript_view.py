@@ -4,16 +4,24 @@ from __future__ import annotations
 
 import asyncio
 import io
+import sys
+import threading
 
+import pytest
 from prompt_toolkit.output.base import Size
 from prompt_toolkit.output.vt100 import Vt100_Output
+from rich.console import Console
 from rich.markdown import Markdown
+from rich.table import Table
 from rich.text import Text
+from rich.theme import Theme
 
-from surfaces.interactive_shell.ui.input_prompt.stdout import _AppBoundStdoutProxy
+from surfaces.interactive_shell.ui.input_prompt.stdout import _TRANSIENT_END, _AppBoundStdoutProxy
+from surfaces.interactive_shell.ui.streaming.console import StreamingConsole
 from surfaces.interactive_shell.ui.transcript_view import TranscriptControl, TranscriptStore
-from surfaces.interactive_shell.ui.transcript_view.store import trim_row_padding
+from surfaces.interactive_shell.ui.transcript_view.store import render_rows, trim_row_padding
 from surfaces.shared.terminal.banner import ResponsiveLaunchBanner
+from surfaces.shared.terminal.components.rendering import record_in_transcript
 
 _PARAGRAPH = "OpenSRE found three failing jobs and the flaky one burned two hours of runner time"
 
@@ -201,3 +209,96 @@ def test_output_while_full_screen_is_recorded_without_touching_the_terminal() ->
     assert _plain_rows(store, width=40) == ["streamed reply"]
     [entry] = store.take_unflushed()
     assert entry.on_normal_screen is True
+
+
+def test_render_width_holds_on_a_dumb_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TERM", "dumb")
+
+    rows = render_rows(Text(_PARAGRAPH), 30)
+
+    assert max(len("".join(text for _style, text in row)) for row in rows) <= 30
+
+
+def test_printed_tables_keep_their_layout_and_theme_at_every_width(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = TranscriptStore()
+    loop = asyncio.new_event_loop()
+    try:
+        proxy = _proxy(store, io.StringIO(), _FakeApp(loop))
+        monkeypatch.setattr(sys, "stdout", proxy)
+        console = Console(width=100)
+        table = Table("service", "status")
+        table.add_row("checkout-api", Text("degraded", style="status.bad"))
+        with console.use_theme(Theme({"status.bad": "red"})):
+            assert record_in_transcript(console, table)
+        proxy.close()
+    finally:
+        loop.close()
+
+    narrow, _older = store.tail_rows(24, 50)
+    wide = _plain_rows(store, width=100)
+    assert max(len("".join(text for _style, text in row).rstrip()) for row in narrow) <= 24
+    assert any("checkout-api" in row and "degraded" in row for row in wide)
+    red = ["".join(text for style, text in row if "red" in style) for row in narrow]
+    assert "degraded" in red
+
+
+class _Spinner:
+    bytes_in = 0
+    streaming = True
+
+    def stop(self) -> None:
+        """Nothing to stop."""
+
+
+def test_replies_through_a_delegating_console_rewrap_on_grow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = TranscriptStore()
+    loop = asyncio.new_event_loop()
+    try:
+        proxy = _proxy(store, io.StringIO(), _FakeApp(loop))
+        monkeypatch.setattr(sys, "stdout", proxy)
+        console = StreamingConsole(
+            _Spinner(), threading.Event(), output=Console(width=40), highlight=False
+        )
+        console.print(Markdown(_PARAGRAPH), width=38)
+        proxy.close()
+    finally:
+        loop.close()
+
+    assert _plain_rows(store, width=140) == [_PARAGRAPH]
+
+
+def _race_the_end_marker(proxy: _AppBoundStdoutProxy) -> list[threading.Thread]:
+    """Start a writer thread just as the menu's end marker is queued."""
+    writers: list[threading.Thread] = []
+    put = proxy._flush_queue.put
+
+    def racing_put(item: str, block: bool = True, timeout: float | None = None) -> None:
+        if item == _TRANSIENT_END and not writers:
+            writer = threading.Thread(target=proxy.write, args=("after the menu\n",))
+            writers.append(writer)
+            writer.start()
+            # Unless the proxy holds its write lock here, the line lands first.
+            writer.join(timeout=0.2)
+        put(item, block, timeout)
+
+    proxy._flush_queue.put = racing_put  # type: ignore[method-assign]
+    return writers
+
+
+def test_output_racing_the_menu_end_is_still_recorded() -> None:
+    store = TranscriptStore()
+    proxy = _proxy(store, io.StringIO(), _FakeApp(None))
+    writers = _race_the_end_marker(proxy)
+
+    proxy.begin_transient_output()
+    proxy.write("❯ (A) option\n")
+    proxy.end_transient_output()
+    [writer] = writers
+    writer.join()
+    proxy.close()
+
+    assert _plain_rows(store, width=40) == ["after the menu"]

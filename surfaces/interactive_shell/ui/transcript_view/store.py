@@ -10,6 +10,7 @@ re-wrapped by Rich with its old-width padding removed.
 
 from __future__ import annotations
 
+import functools
 import io
 import re
 import threading
@@ -29,6 +30,8 @@ Row = tuple[Fragment, ...]
 _MAX_ENTRIES = 20_000
 # A drag visits many widths; remember rows for the latest few per entry.
 _WIDTH_CACHE_SIZE = 3
+# Rich ignores a width override on TERM=dumb/unknown unless height is set too.
+_RENDER_HEIGHT = 25
 
 _CLEAR_SCREEN = re.compile(r"\x1b\[[23]J")
 # OSC strings, CSI sequences, then any other ESC-led byte (or a lone ESC).
@@ -93,6 +96,7 @@ def render_rows(renderable: RenderableType, width: int) -> tuple[Row, ...]:
     console = Console(
         file=buffer,
         width=max(1, width),
+        height=_RENDER_HEIGHT,
         force_terminal=True,
         color_system="truecolor",
         highlight=False,
@@ -278,7 +282,7 @@ class TranscriptStore:
 
 
 def _collect_tail(
-    entries: list[TranscriptEntry], pending_rows: list[Row], width: int, count: int
+    entries: list[TranscriptEntry], pending_rows: tuple[Row, ...], width: int, count: int
 ) -> tuple[list[Row], bool]:
     rows = list(pending_rows)
     for entry in reversed(entries):
@@ -289,7 +293,10 @@ def _collect_tail(
 
 
 def _rows_since(
-    entries: list[TranscriptEntry], pending_rows: list[Row], anchor: TranscriptMark, width: int
+    entries: list[TranscriptEntry],
+    pending_rows: tuple[Row, ...],
+    anchor: TranscriptMark,
+    width: int,
 ) -> int:
     """Rows added below ``anchor`` at ``width``.
 
@@ -305,23 +312,39 @@ def _rows_since(
     return added + len(pending_rows) - len(_pending_rows(anchor.pending, width))
 
 
-def _pending_rows(pending: str, width: int) -> list[Row]:
-    return list(render_rows(ansi_renderable(pending), width)) if pending else []
+def _pending_rows(pending: str, width: int) -> tuple[Row, ...]:
+    return _render_pending(pending, width) if pending else ()
+
+
+@functools.lru_cache(maxsize=8)
+def _render_pending(pending: str, width: int) -> tuple[Row, ...]:
+    # Repaints re-render the same partial line (and the anchor's) many times.
+    return render_rows(ansi_renderable(pending), width)
 
 
 def render_for_scrollback(entries: Iterable[TranscriptEntry], width: int) -> str:
     """Render entries as terminal text for the normal screen (CRLF line ends)."""
+    return _render_terminal_text([entry.renderable for entry in entries], width)
+
+
+def render_text(renderable: RenderableType, width: int) -> str:
+    """Render one renderable as terminal text for the normal screen (CRLF line ends)."""
+    return _render_terminal_text([renderable], width)
+
+
+def _render_terminal_text(renderables: list[RenderableType], width: int) -> str:
     buffer = io.StringIO()
     console = Console(
         file=buffer,
         width=max(1, width),
+        height=_RENDER_HEIGHT,
         force_terminal=True,
         color_system="truecolor",
         highlight=False,
         legacy_windows=False,
     )
-    for entry in entries:
-        console.print(entry.renderable, overflow="fold")
+    for renderable in renderables:
+        console.print(renderable, overflow="fold")
     return buffer.getvalue().replace("\r\n", "\n").replace("\n", "\r\n")
 
 
@@ -334,6 +357,7 @@ __all__ = [
     "ansi_renderable",
     "render_for_scrollback",
     "render_rows",
+    "render_text",
     "sanitize_terminal_text",
     "trim_row_padding",
 ]
