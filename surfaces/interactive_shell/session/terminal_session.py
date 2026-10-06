@@ -92,6 +92,12 @@ class TerminalSession:
     slash commands (e.g. ``/theme``) can refresh styles via ``call_soon_threadsafe`` on
     the main asyncio loop."""
 
+    transcript: Any = None
+    """The full-screen transcript store, when the shell runs full screen.
+
+    Screen resets (``/clear``, a theme change) reset it instead of clearing the
+    terminal, because the full-screen view draws from it."""
+
     main_loop: Any = None
     """The asyncio event loop for the main REPL coroutine.
 
