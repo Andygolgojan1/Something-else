@@ -212,11 +212,10 @@ def test_large_arguments_can_reach_operator_confirmation(tool_name: str) -> None
     assert decision == BeforeToolCallResult(approved=True)
     assert len(asked) == 1
     shown = " ".join(printed.getvalue().split())
+    assert "[truncated]" in shown
+    assert len(shown) < 4500
     if tool_name == "call_mcp_gateway_tool":
         assert '"service": "prod"' in shown
-        assert "[truncated]" not in shown
-    else:
-        assert "[truncated]" in shown
 
 
 @pytest.mark.parametrize("is_tty", [True, False])
@@ -250,3 +249,23 @@ def test_shell_action_approval_metadata_keeps_existing_auto_policy(is_tty: bool)
     assert hooks.before_tool_call(request) is None
     assert passed == ["shell_run"]
     assert asked == [] and printed.getvalue() == ""
+
+
+def test_approval_does_not_authorize_hidden_argument_fields() -> None:
+    console, _printed = _console()
+    asked: list[str] = []
+
+    def confirm(prompt: str) -> str:
+        asked.append(prompt)
+        return "y"
+
+    hooks = with_shell_approval(
+        None, session=Session(), console=console, confirm_fn=confirm, is_tty=True
+    )
+    assert hooks.before_tool_call is not None
+    decision = hooks.before_tool_call(
+        _request("call_mcp_gateway_tool", {"arguments": {f"field_{i}": i for i in range(1000)}})
+    )
+    assert decision is not None and decision.blocked and not decision.approved
+    assert "fields" in decision.reason
+    assert asked == []

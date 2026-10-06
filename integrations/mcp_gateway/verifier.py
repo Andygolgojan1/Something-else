@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from integrations._validation_helpers import report_validation_failure
 from integrations.mcp_gateway.client import McpGatewayClient
 from integrations.mcp_gateway.config import McpGatewayConfig, build_mcp_gateway_config
+from integrations.mcp_gateway.redaction import public_tool_name
 from integrations.verification import register_validation_verifier
 
 logger = logging.getLogger(__name__)
@@ -47,7 +48,8 @@ def validate_mcp_gateway_config(config: McpGatewayConfig) -> McpGatewayValidatio
     if missing:
         return McpGatewayValidationResult(
             ok=False,
-            detail="MCP gateway did not advertise configured tool(s): " + ", ".join(missing),
+            detail="MCP gateway did not advertise configured tool(s): "
+            + ", ".join(public_tool_name(name, config.auth_token) for name in missing),
         )
 
     effective = (
@@ -61,7 +63,7 @@ def validate_mcp_gateway_config(config: McpGatewayConfig) -> McpGatewayValidatio
             f"MCP gateway connected; discovered {len(effective)} tool(s): "
             f"{read_only_count} read-only and {approval_count} approval-required."
         ),
-        tool_names=tuple(sorted(effective)),
+        tool_names=tuple(sorted(public_tool_name(name, config.auth_token) for name in effective)),
     )
 
 

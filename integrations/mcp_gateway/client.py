@@ -7,7 +7,7 @@ from typing import TypedDict, cast
 from integrations.mcp_client import McpSessionOptions, call_mcp_tool, list_mcp_tools
 from integrations.mcp_gateway.config import McpGatewayConfig
 from integrations.mcp_gateway.errors import McpGatewayRefused, safe_request_error
-from integrations.mcp_gateway.redaction import scrub_configured_token
+from integrations.mcp_gateway.redaction import public_tool_name, scrub_configured_token
 
 
 class McpGatewayToolDescriptor(TypedDict):
@@ -74,17 +74,35 @@ class McpGatewayClient:
         read_only: bool = False,
     ) -> dict[str, object]:
         """Call one advertised tool after enforcing local execution policy."""
-        name = tool_name.strip()
-        if not name:
+        requested = tool_name.strip()
+        if not requested:
             raise McpGatewayRefused("MCP gateway tool_name is required.")
-        if self.config.allowed_tools and name not in self.config.allowed_tools:
-            raise McpGatewayRefused(f"MCP gateway tool '{name}' is not allowed.")
-        if read_only and name not in self.config.read_only_tools:
-            raise McpGatewayRefused(f"MCP gateway tool '{name}' is not certified read-only.")
 
-        advertised_names = {tool["name"] for tool in self.list_tools()}
-        if name not in advertised_names:
-            raise McpGatewayRefused(f"MCP gateway tool '{name}' is not advertised by the server.")
+        def matches(names: tuple[str, ...] | set[str]) -> set[str]:
+            return {
+                name
+                for name in names
+                if name == requested or public_tool_name(name, self.config.auth_token) == requested
+            }
+
+        if self.config.allowed_tools and len(matches(self.config.allowed_tools)) != 1:
+            raise McpGatewayRefused("MCP gateway tool is not allowed or its name is ambiguous.")
+        if read_only and len(matches(self.config.read_only_tools)) != 1:
+            raise McpGatewayRefused(
+                "MCP gateway tool is not certified read-only or its name is ambiguous."
+            )
+
+        advertised_names = {tool["name"] for tool in self.list_all_tools()}
+        candidates = matches(advertised_names)
+        if not candidates:
+            raise McpGatewayRefused("MCP gateway tool is not advertised by the server.")
+        if len(candidates) != 1:
+            raise McpGatewayRefused("MCP gateway tool name is ambiguous.")
+        name = next(iter(candidates))
+        if self.config.allowed_tools and name not in self.config.allowed_tools:
+            raise McpGatewayRefused("MCP gateway tool is not allowed.")
+        if read_only and name not in self.config.read_only_tools:
+            raise McpGatewayRefused("MCP gateway tool is not certified read-only.")
 
         try:
             result = call_mcp_tool(

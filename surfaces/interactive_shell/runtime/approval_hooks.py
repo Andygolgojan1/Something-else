@@ -10,10 +10,8 @@ from rich.console import Console
 from config.constants.repl_autonomy import ASK_AT_EVERY_AUTO_LEVEL_TOOL_NAMES
 from config.constants.tooling import ToolBlockedBy
 from core.tool import BeforeToolCallResult, ToolExecutionHooks, ToolExecutionRequest
-from infrastructure.observability.trace.redaction import (
-    DEFAULT_JSON_PREVIEW_MAX_CHARS,
-    format_json_preview,
-)
+from infrastructure.observability.trace.approval_preview import format_approval_preview
+from infrastructure.observability.trace.redaction import DEFAULT_JSON_PREVIEW_MAX_CHARS
 from infrastructure.safety.terminal_output import strip_terminal_controls
 from surfaces.interactive_shell.session import Session
 from surfaces.interactive_shell.ui.execution_confirm import execution_allowed
@@ -64,15 +62,12 @@ class _ShellApproval:
         if tool_name not in ASK_AT_EVERY_AUTO_LEVEL_TOOL_NAMES:
             return self._later_decision(request)
 
-        preview_limit = (
-            None if tool_name == "call_mcp_gateway_tool" else DEFAULT_JSON_PREVIEW_MAX_CHARS
+        preview = format_approval_preview(
+            request.arguments, max_chars=DEFAULT_JSON_PREVIEW_MAX_CHARS
         )
-        preview = (
-            format_json_preview(request.arguments, max_chars=preview_limit)
-            if request.arguments
-            else ""
-        )
-        approved = self._user_approves(request, preview)
+        if not preview.fields_visible:
+            return BeforeToolCallResult(blocked=True, reason=preview.text)
+        approved = self._user_approves(request, preview.text if request.arguments else "")
         if not approved:
             return _declined(tool_name)
 

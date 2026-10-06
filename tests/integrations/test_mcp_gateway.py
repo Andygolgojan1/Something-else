@@ -19,6 +19,7 @@ from integrations.mcp_gateway import (
     describe_mcp_gateway_error,
     validate_mcp_gateway_config,
 )
+from integrations.mcp_gateway.redaction import public_tool_name
 from integrations.mcp_gateway.setup import MCP_GATEWAY_SETUP
 from integrations.registry import service_key
 
@@ -287,3 +288,26 @@ def test_successful_payloads_scrub_the_configured_token() -> None:
     assert token not in repr(result)
     assert result["structured_content"] == {"items": [{"[redacted]": "[redacted]"}], "count": 1}
     assert token in repr(response)
+
+
+def test_alias_collision_cannot_select_another_advertised_tool() -> None:
+    config = McpGatewayConfig(
+        url="https://mcp.example.test/mcp",
+        auth_token="status",
+        allowed_tools=("service_status",),
+        read_only_tools=("service_status",),
+    )
+    alias = public_tool_name("service_status", config.auth_token)
+    with (
+        patch(
+            "integrations.mcp_gateway.client.list_mcp_tools",
+            return_value=[
+                types.Tool(name="service_status", input_schema={}),
+                types.Tool(name=alias, input_schema={}),
+            ],
+        ),
+        patch("integrations.mcp_gateway.client.call_mcp_tool") as call,
+        pytest.raises(McpGatewayRefused, match="ambiguous"),
+    ):
+        McpGatewayClient(config).call_tool(alias, read_only=True)
+    call.assert_not_called()

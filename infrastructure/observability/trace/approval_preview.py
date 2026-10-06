@@ -1,0 +1,71 @@
+"""Bounded approval previews that preserve argument fields and redact secrets."""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Callable
+from dataclasses import dataclass
+from functools import partial
+from typing import Any
+
+from infrastructure.observability.trace.redaction import redact_sensitive
+
+_TRUNCATED = "… [truncated]"
+_MIN_VALUE_CHARS = 16
+_TOO_MANY_FIELDS = "Too many argument fields to review safely; reduce the payload."
+
+
+@dataclass(frozen=True)
+class ApprovalPreview:
+    """Display text and whether every argument field remains represented."""
+
+    text: str
+    fields_visible: bool
+
+
+def _map_values(value: Any, transform: Callable[[str], str]) -> Any:
+    if isinstance(value, dict):
+        return {key: _map_values(item, transform) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_map_values(item, transform) for item in value]
+    if isinstance(value, str):
+        return transform(value)
+    return value
+
+
+def _shorten(value: str, limit: int) -> str:
+    if len(value) <= limit:
+        return value
+    keep = max(0, limit - len(_TRUNCATED))
+    head = (keep + 1) // 2
+    tail = keep // 2
+    return value[:head] + _TRUNCATED + (value[-tail:] if tail else "")
+
+
+def format_approval_preview(
+    value: Any,
+    *,
+    max_chars: int,
+    scrub_text: Callable[[str], str] | None = None,
+) -> ApprovalPreview:
+    """Shorten individual values, never drop fields to satisfy the display budget."""
+    try:
+        safe = redact_sensitive(value)
+        if scrub_text is not None:
+            safe = _map_values(safe, scrub_text)
+        text = json.dumps(safe, ensure_ascii=False, default=str)
+        if len(text) <= max_chars:
+            return ApprovalPreview(text, fields_visible=True)
+        limit = max(_MIN_VALUE_CHARS, max_chars // 2)
+        while True:
+            compact = _map_values(safe, partial(_shorten, limit=limit))
+            text = json.dumps(compact, ensure_ascii=False, default=str)
+            if len(text) <= max_chars:
+                return ApprovalPreview(text, fields_visible=True)
+            if limit == _MIN_VALUE_CHARS:
+                break
+            limit = max(_MIN_VALUE_CHARS, limit // 2)
+    except (TypeError, ValueError, RecursionError):
+        # Non-JSON inputs cannot be faithfully represented for authorization.
+        pass
+    return ApprovalPreview(_TOO_MANY_FIELDS[:max_chars], fields_visible=False)

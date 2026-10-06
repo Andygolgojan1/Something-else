@@ -190,13 +190,20 @@ def test_discovery_redaction_preserves_original_policy_names() -> None:
     ):
         client = McpGatewayClient(config)
         assert client.list_tools()[0]["name"] == "service_status"
-        assert validate_mcp_gateway_config(config).ok
+        validation = validate_mcp_gateway_config(config)
+        assert validation.ok
+        assert "status" not in repr(validation.tool_names)
         client.call_tool("service_status", read_only=True)
         assert call.call_args.args[1] == "service_status"
         listing = list_mcp_gateway_tools(include_schema=True, _mcp_gateway_client=client)
+        alias = listing["tools"][0]["name"]
+        assert alias != "service_status" and "status" not in alias
+        client.call_tool(alias, read_only=True)
+        assert call.call_args.args[1] == "service_status"
+    assert "status" not in repr(listing)
     assert listing["tools"] == [
         {
-            "name": "service_status",
+            "name": alias,
             "description": "Echo [redacted]",
             "input_schema": {"description": "[redacted]"},
             "access": "read_only",

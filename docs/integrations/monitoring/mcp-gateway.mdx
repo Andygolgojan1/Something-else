@@ -83,3 +83,5 @@ The test starts the sample server, discovers both tools, calls the certified rea
 | Endpoint not found | Confirm `MCP_GATEWAY_URL`; Streamable HTTP servers commonly use `/mcp` |
 | Configured tool is missing | Update the allowlist/read-only list to exact names currently advertised by the server |
 | Connection timed out | Confirm network reachability and that the server completes initialization within 30 seconds |
+
+If a server tool name contains the configured authentication token, discovery shows a stable credential-safe alias. Calls using that alias resolve to the original name before exact-name allowlist and read-only checks. Configure policies using the original server names.
