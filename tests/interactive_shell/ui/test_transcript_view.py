@@ -302,3 +302,28 @@ def test_output_racing_the_menu_end_is_still_recorded() -> None:
     proxy.close()
 
     assert _plain_rows(store, width=40) == ["after the menu"]
+
+
+@pytest.mark.asyncio
+async def test_full_screen_composer_fits_a_three_row_window() -> None:
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.input.defaults import create_pipe_input
+
+    from surfaces.interactive_shell.ui.input_prompt import build_prompt_session
+
+    terminal = io.StringIO()
+    output = Vt100_Output(
+        terminal, get_size=lambda: Size(rows=3, columns=33), term="xterm", enable_cpr=False
+    )
+    with create_pipe_input() as pipe_input, create_app_session(input=pipe_input, output=output):
+        prompt = build_prompt_session(transcript=TranscriptControl(TranscriptStore()))
+        task = asyncio.create_task(prompt.prompt_async("", bottom_toolbar=""))
+        pipe_input.send_text("draft")
+        await asyncio.sleep(0.3)
+        painted = terminal.getvalue()
+        pipe_input.send_text("\r")
+        await asyncio.wait_for(task, timeout=5.0)
+
+    # The spinner row yields to the composer instead of "Window too small".
+    assert "Window too small" not in painted
+    assert "draft" in painted
