@@ -7,8 +7,11 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from infrastructure.safety.secret_redaction import redact_text
+
 _SENSITIVE_KEY_RE = re.compile(
-    r"(api[_-]?key|token|secret|password|credential|authorization|auth[_-]?header)",
+    r"(api[_-]?key|token|secret|password|passwd|passphrase|credential|authorization|"
+    r"auth[_-]?header|private[_-]?key|signing[_-]?key|seed[_-]?phrase|mnemonic)",
     re.IGNORECASE,
 )
 _RUNTIME_KEY_RE = re.compile(r"(^_|backend$|_backend$)", re.IGNORECASE)
@@ -53,7 +56,7 @@ class RedactedToolView:
 def redact_sensitive(value: Any) -> Any:
     """Return a deep copy of ``value`` with credentials and runtime objects hidden.
 
-    Non-container scalars are returned unchanged (no copy). Nested dict/list/
+    Strings are scrubbed before serialization; other scalars are unchanged. Nested dict/list/
     tuple values are walked once into new containers — never aliases of
     ``value``'s nested objects.
     """
@@ -72,6 +75,8 @@ def redact_sensitive(value: Any) -> Any:
         return [redact_sensitive(item) for item in value]
     if isinstance(value, tuple):
         return [redact_sensitive(item) for item in value]
+    if isinstance(value, str):
+        return redact_text(value)
     return value
 
 

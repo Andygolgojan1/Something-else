@@ -125,3 +125,13 @@ def test_format_tool_trace_entry_handles_empty_trace_record_and_output_limit() -
     assert limited.startswith("- `large_tool` (iteration 1)")
     assert "... [truncated]" in limited
     assert limited.count("\n") == 2
+
+
+def test_preview_redacts_complete_values_before_serialization_and_truncation() -> None:
+    private_key = (
+        "-----BEGIN PRIVATE KEY-----\n" + "private-material" * 40 + "\n-----END PRIVATE KEY-----"
+    )
+    preview = format_json_preview({"body": private_key, "service": "prod"}, max_chars=80)
+    assert "private-material" not in preview
+    assert "REDACTED" in preview
+    assert '"service": "prod"' in preview

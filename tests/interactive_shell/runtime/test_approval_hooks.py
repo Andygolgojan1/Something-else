@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 
+import pytest
 from rich.console import Console
 
 from config.constants.repl_autonomy import (
@@ -123,3 +124,39 @@ def test_requires_approval_metadata_prompts_at_default_auto_level() -> None:
 
 def test_generated_code_asks_at_every_auto_level() -> None:
     assert frozenset({"execute_python_code"}) == ASK_AT_EVERY_AUTO_LEVEL_TOOL_NAMES
+
+
+@pytest.mark.parametrize(
+    ("credential", "secrets"),
+    [
+        ({"private_key": "opaque-private-value"}, ("opaque-private-value",)),
+        (
+            {"items": [{"header": "Bearer super-secret", "value": "sk-test-secret"}]},
+            ("super-secret", "sk-test-secret"),
+        ),
+        (
+            {"body": "-----BEGIN PRIVATE KEY-----\nkey-material\n-----END PRIVATE KEY-----"},
+            ("key-material",),
+        ),
+    ],
+)
+def test_approval_preview_scrubs_nested_credentials(
+    credential: dict[str, object], secrets: tuple[str, ...]
+) -> None:
+    console, printed = _console()
+    payload = {"service": "prod", **credential}
+    arguments: dict[str, object] = {"tool_name": "restart_service", "arguments": payload}
+    hooks = with_shell_approval(
+        None, session=Session(), console=console, confirm_fn=lambda _prompt: "y", is_tty=True
+    )
+    assert hooks.before_tool_call is not None
+
+    decision = hooks.before_tool_call(_request("call_mcp_gateway_tool", arguments))
+
+    assert decision == BeforeToolCallResult(approved=True)
+    preview = printed.getvalue()
+    assert "restart_service" in preview and '"service": "prod"' in preview
+    assert "REDACTED" in preview or "redacted" in preview
+    for secret in secrets:
+        assert secret not in preview
+    assert payload == {"service": "prod", **credential}

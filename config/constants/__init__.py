@@ -800,6 +800,9 @@ if TYPE_CHECKING:
     from config.constants.mcp import (
         MCP_TERMINAL_ENV as MCP_TERMINAL_ENV,
     )
+    from config.constants.mcp import (
+        MCP_TOOL_LIST_MAX_PAGES as MCP_TOOL_LIST_MAX_PAGES,
+    )
     from config.constants.mcp_gateway import (
         MCP_GATEWAY_ALLOWED_TOOLS_ENV as MCP_GATEWAY_ALLOWED_TOOLS_ENV,
     )

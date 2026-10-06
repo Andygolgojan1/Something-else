@@ -48,7 +48,6 @@ jobs:
             uv.lock
 
       - name: Set up Python
-        id: setup-python
         if: steps.changes.outputs.source == 'true' || github.event_name == 'push'
         uses: actions/setup-python@v6
         with:
@@ -92,6 +91,7 @@ jobs:
             uv.lock
 
       - name: Set up Python
+        id: setup-python
         if: steps.changes.outputs.source == 'true' || github.event_name == 'push'
         uses: actions/setup-python@v6
         with:

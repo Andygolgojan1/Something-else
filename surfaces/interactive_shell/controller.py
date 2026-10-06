@@ -73,6 +73,7 @@ from surfaces.interactive_shell.runtime.turn_host import (
 from surfaces.interactive_shell.session import Session
 from surfaces.interactive_shell.ui import DIM
 from surfaces.interactive_shell.ui.input_prompt.stdout import patch_prompt_stdout
+from surfaces.interactive_shell.ui.transcript_view import TranscriptStore
 
 log = logging.getLogger(__name__)
 
@@ -180,6 +181,7 @@ class InteractiveShellController:
         inbox: _alert_inbox.AlertInbox | None = None,
         console: Console | None = None,
         startup_work: DeferredStartupWork | None = None,
+        transcript: TranscriptStore | None = None,
     ) -> None:
         self.runtime_context = _resolve_runtime_context(
             session,
@@ -204,6 +206,7 @@ class InteractiveShellController:
             self.state,
             self.spinner,
             self.runtime_context.pt_session,
+            transcript,
         )
         # Lazy: TurnRunner pulls the agent/action stack — must not load at
         # ``import surfaces.interactive_shell.main``.
@@ -257,7 +260,11 @@ class InteractiveShellController:
             try:
                 if self.prompt.pt_app is None:
                     raise RuntimeError("prompt application was not initialized")
-                with patch_prompt_stdout(self.prompt.pt_app, raw=True):
+                with patch_prompt_stdout(
+                    self.prompt.pt_app,
+                    raw=True,
+                    transcript=self.prompt.transcript if self.prompt.transcript_view else None,
+                ):
                     # Main input loop: reads prompts and enqueues submitted turns
                     # onto state.queue. The agent turns themselves run in
                     # run_agent_turn_queue, started above in _start_runtime_services.
