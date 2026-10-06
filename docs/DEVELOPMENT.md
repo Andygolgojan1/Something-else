@@ -21,7 +21,8 @@ uv run opensre   # open the interactive shell
 
 Follow [CI.md](../CI.md) for the required local validation. During development,
 run the closest regression tests or `make test-scope`. Review the diff and
-links for documentation-only changes; do not run manual Python checks.
+links for ordinary documentation changes. If tests validate the edited content,
+run the closest contract tests; documentation-only PR CI skips them.
 
 `make install` also installs the blocking push hook, which validates committed
 revisions with shared quality checks and affected tests. Do not repeat it

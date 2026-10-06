@@ -36,9 +36,17 @@ unresolved concern justify it.
 
 | Change | Manual local validation |
 | --- | --- |
-| Non-executable documentation only | Review the diff and affected links; no Python checks. Runtime prompts and skill cards are not ordinary documentation. |
+| Non-executable documentation without test-backed contracts | Review the diff and affected links; no Python checks. Runtime prompts and skill cards are not ordinary documentation. |
+| Documentation with test-backed contracts | Run the closest contract tests for the edited content; documentation-only PR CI does not run these tests. |
 | Product or test behavior | Run the closest regression tests, or `make test-scope` when the affected tests are unclear. Record the scope and result in the PR. |
 | Behavior outside automated PR coverage | Run the relevant package-specific smoke, live-integration, install, or UI check. Explain what it verifies and any unavailable credentials or environment. |
+
+For documentation contracts, consult the explicit path mappings in
+[.github/ci/test_scope_rules.py](.github/ci/test_scope_rules.py) and tests that
+read the edited file. The current documentation classifier skips these paths
+in `make test-scope` and the push gate, so invoke the relevant mapped pytest
+targets directly. A documentation extension alone is not evidence that no
+tests are needed.
 
 Do not require separate local `make lint`, `make format-check`,
 `make typecheck`, import/registry checks, `make test-full`, or `make test-cov`

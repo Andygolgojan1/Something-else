@@ -125,7 +125,9 @@ verification) follow [docs/adding-tools-and-integrations.md](docs/adding-tools-a
 
 [CI.md](CI.md) is the source of truth for local validation. Run the smallest
 relevant regression tests, or `make test-scope` to select affected tests.
-Documentation-only changes need a diff/link review, not manual Python checks.
+Ordinary documentation changes need a diff/link review; documentation with
+test-backed contracts still needs its closest contract tests, as described in
+CI.md.
 Do not repeat the installed push gate or run the full PR pipeline locally.
 Include the validation performed in the PR description; required GitHub checks
 must pass before merge.
