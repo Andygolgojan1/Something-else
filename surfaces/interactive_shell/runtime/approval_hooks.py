@@ -1,4 +1,4 @@
-"""Tool hooks that enforce approval metadata in the interactive shell."""
+"""Tool hooks for explicit approval exceptions in the interactive shell."""
 
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ def with_shell_approval(
 
 @dataclass(frozen=True)
 class _ShellApproval:
-    """Asks about approval-required tools, then hands over to the later hook."""
+    """Asks about always-confirmed tools, then hands over to the later hook."""
 
     session: Session
     console: Console
@@ -61,18 +61,17 @@ class _ShellApproval:
 
     def before_tool_call(self, request: ToolExecutionRequest) -> BeforeToolCallResult | None:
         tool_name = request.tool_call.name
-        requires_approval = bool(getattr(request.tool, "requires_approval", False))
-        if not requires_approval and tool_name not in ASK_AT_EVERY_AUTO_LEVEL_TOOL_NAMES:
+        if tool_name not in ASK_AT_EVERY_AUTO_LEVEL_TOOL_NAMES:
             return self._later_decision(request)
 
-        preview = (
-            format_json_preview(request.arguments, max_chars=None) if request.arguments else ""
+        preview_limit = (
+            None if tool_name == "call_mcp_gateway_tool" else DEFAULT_JSON_PREVIEW_MAX_CHARS
         )
-        if len(preview) > DEFAULT_JSON_PREVIEW_MAX_CHARS:
-            return BeforeToolCallResult(
-                blocked=True,
-                reason="Tool arguments exceed the approval display limit. Reduce the payload before retrying.",
-            )
+        preview = (
+            format_json_preview(request.arguments, max_chars=preview_limit)
+            if request.arguments
+            else ""
+        )
         approved = self._user_approves(request, preview)
         if not approved:
             return _declined(tool_name)

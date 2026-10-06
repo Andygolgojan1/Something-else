@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+import mcp_types as types
 
 from core.tool import ERROR_KIND_REFUSED, SideEffectLevel
-from integrations.mcp_gateway import McpGatewayRefused
+from integrations.mcp_gateway import (
+    McpGatewayClient,
+    McpGatewayConfig,
+    McpGatewayRefused,
+    validate_mcp_gateway_config,
+)
 from integrations.mcp_gateway.tools.gateway import (
     call_mcp_gateway_read_tool,
     call_mcp_gateway_tool,
@@ -88,6 +95,7 @@ def test_extract_params_injects_client_without_exposing_raw_secret() -> None:
 def test_list_labels_tools_by_access_policy() -> None:
     client = MagicMock()
     client.config.read_only_tools = ("status",)
+    client.config.auth_token = ""
     client.list_tools.return_value = [
         {"name": "status", "description": "Status", "input_schema": {}},
         {"name": "restart_service", "description": "Restart", "input_schema": {}},
@@ -158,3 +166,39 @@ def test_local_policy_refusal_stays_available() -> None:
     assert result["available"] is True
     assert result["error"] == "not allowed"
     assert result["error_kind"] == ERROR_KIND_REFUSED
+
+
+def test_discovery_redaction_preserves_original_policy_names() -> None:
+    config = McpGatewayConfig(
+        url="https://mcp.example.test/mcp",
+        auth_token="status",
+        allowed_tools=("service_status",),
+        read_only_tools=("service_status",),
+    )
+    with (
+        patch(
+            "integrations.mcp_gateway.client.list_mcp_tools",
+            return_value=[
+                types.Tool(
+                    name="service_status",
+                    description="Echo status",
+                    input_schema={"description": "status"},
+                )
+            ],
+        ),
+        patch("integrations.mcp_gateway.client.call_mcp_tool", return_value={}) as call,
+    ):
+        client = McpGatewayClient(config)
+        assert client.list_tools()[0]["name"] == "service_status"
+        assert validate_mcp_gateway_config(config).ok
+        client.call_tool("service_status", read_only=True)
+        assert call.call_args.args[1] == "service_status"
+        listing = list_mcp_gateway_tools(include_schema=True, _mcp_gateway_client=client)
+    assert listing["tools"] == [
+        {
+            "name": "service_status",
+            "description": "Echo [redacted]",
+            "input_schema": {"description": "[redacted]"},
+            "access": "read_only",
+        }
+    ]

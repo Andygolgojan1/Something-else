@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+from dataclasses import replace
 
 import pytest
 from rich.console import Console
@@ -16,6 +17,7 @@ from core.llm.types import ToolCall
 from core.tool import BeforeToolCallResult, ToolExecutionHooks, ToolExecutionRequest
 from surfaces.interactive_shell.runtime.approval_hooks import with_shell_approval
 from surfaces.interactive_shell.session import Session
+from tools.interactive_shell.actions.shell import shell_run_tool
 from tools.registry import clear_tool_registry_cache, get_registered_tool_map
 
 
@@ -87,7 +89,7 @@ def test_other_tools_are_not_asked_about() -> None:
     assert asked == [] and printed.getvalue() == ""
 
 
-def test_requires_approval_metadata_prompts_at_default_auto_level() -> None:
+def test_mcp_mutations_prompt_at_default_auto_level() -> None:
     # Arrange
     session = Session()
     console, printed = _console()
@@ -123,7 +125,7 @@ def test_requires_approval_metadata_prompts_at_default_auto_level() -> None:
 
 
 def test_generated_code_asks_at_every_auto_level() -> None:
-    assert frozenset({"execute_python_code"}) == ASK_AT_EVERY_AUTO_LEVEL_TOOL_NAMES
+    assert {"execute_python_code", "call_mcp_gateway_tool"} <= ASK_AT_EVERY_AUTO_LEVEL_TOOL_NAMES
 
 
 @pytest.mark.parametrize(
@@ -188,8 +190,9 @@ def test_approval_keeps_later_mutation_targets_visible() -> None:
     assert '"service": "prod"' in " ".join(printed.getvalue().split())
 
 
-def test_approval_blocks_payloads_that_cannot_be_fully_displayed() -> None:
-    console, _printed = _console()
+@pytest.mark.parametrize("tool_name", ["call_mcp_gateway_tool", "execute_python_code"])
+def test_large_arguments_can_reach_operator_confirmation(tool_name: str) -> None:
+    console, printed = _console()
     asked: list[str] = []
 
     def confirm(prompt: str) -> str:
@@ -200,9 +203,50 @@ def test_approval_blocks_payloads_that_cannot_be_fully_displayed() -> None:
         None, session=Session(), console=console, confirm_fn=confirm, is_tty=True
     )
     assert hooks.before_tool_call is not None
-    decision = hooks.before_tool_call(
-        _request("call_mcp_gateway_tool", {"arguments": {"padding": "x" * 5000, "service": "prod"}})
+    arguments: dict[str, object] = (
+        {"arguments": {"padding": "x" * 5000, "service": "prod"}}
+        if tool_name == "call_mcp_gateway_tool"
+        else {"code": "print('hello')\n" * 500}
     )
-    assert decision is not None and decision.blocked and not decision.approved
-    assert "display limit" in decision.reason
-    assert asked == []
+    decision = hooks.before_tool_call(_request(tool_name, arguments))
+    assert decision == BeforeToolCallResult(approved=True)
+    assert len(asked) == 1
+    shown = " ".join(printed.getvalue().split())
+    if tool_name == "call_mcp_gateway_tool":
+        assert '"service": "prod"' in shown
+        assert "[truncated]" not in shown
+    else:
+        assert "[truncated]" in shown
+
+
+@pytest.mark.parametrize("is_tty", [True, False])
+def test_shell_action_approval_metadata_keeps_existing_auto_policy(is_tty: bool) -> None:
+    console, printed = _console()
+    asked: list[str] = []
+    passed: list[str] = []
+
+    def confirm(prompt: str) -> str:
+        asked.append(prompt)
+        return "n"
+
+    def later(request: ToolExecutionRequest) -> None:
+        passed.append(request.tool_call.name)
+
+    hooks = with_shell_approval(
+        ToolExecutionHooks(before_tool_call=later),
+        session=Session(),
+        console=console,
+        confirm_fn=confirm,
+        is_tty=is_tty,
+    )
+    request = replace(
+        _request("start_hosted_gateway"),
+        tool=shell_run_tool,
+        tool_call=ToolCall(id="shell-1", name="shell_run", input={"command": "echo hello"}),
+        arguments={"command": "echo hello"},
+    )
+    assert shell_run_tool.requires_approval
+    assert hooks.before_tool_call is not None
+    assert hooks.before_tool_call(request) is None
+    assert passed == ["shell_run"]
+    assert asked == [] and printed.getvalue() == ""

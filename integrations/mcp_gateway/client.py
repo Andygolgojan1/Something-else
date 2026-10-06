@@ -34,6 +34,7 @@ class McpGatewayClient:
         }
 
     def list_all_tools(self) -> list[McpGatewayToolDescriptor]:
+        """Return original descriptors for policy checks; outputs must redact copies."""
         try:
             tools = list_mcp_tools(
                 self.config,
@@ -47,7 +48,7 @@ class McpGatewayClient:
                 timeout_seconds=self.config.timeout_seconds,
             )
         else:
-            descriptors = [
+            return [
                 {
                     "name": tool.name,
                     "description": tool.description or "",
@@ -55,10 +56,6 @@ class McpGatewayClient:
                 }
                 for tool in tools
             ]
-            return cast(
-                list[McpGatewayToolDescriptor],
-                scrub_configured_token(descriptors, self.config.auth_token),
-            )
         raise error
 
     def list_tools(self) -> list[McpGatewayToolDescriptor]:

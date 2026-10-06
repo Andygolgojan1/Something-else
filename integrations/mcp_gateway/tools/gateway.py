@@ -14,6 +14,7 @@ from integrations.mcp_gateway.errors import (
     McpGatewayRefused,
     McpGatewayRequestError,
 )
+from integrations.mcp_gateway.redaction import scrub_configured_token
 
 _COMPONENT = "integrations.mcp_gateway.tools.gateway"
 _INJECTED_PARAMS = ("_mcp_gateway_client",)
@@ -211,8 +212,21 @@ def list_mcp_gateway_tools(
         payload["tools"] = []
         return payload
 
+    visible_descriptors: list[dict[str, object]] = []
+    for descriptor in descriptors:
+        visible_descriptors.append(
+            {
+                "name": descriptor["name"],
+                "description": scrub_configured_token(
+                    descriptor["description"], _mcp_gateway_client.config.auth_token
+                ),
+                "input_schema": scrub_configured_token(
+                    descriptor["input_schema"], _mcp_gateway_client.config.auth_token
+                ),
+            }
+        )
     listing = build_mcp_tool_listing(
-        [dict(descriptor) for descriptor in descriptors],
+        visible_descriptors,
         name_filter=(name_filter or "").strip() or None,
         include_schema=bool(include_schema),
         filter_example="status restart",

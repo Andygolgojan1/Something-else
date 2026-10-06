@@ -262,7 +262,7 @@ def test_catalog_loads_gateway_from_environment(monkeypatch: pytest.MonkeyPatch)
     assert "mcp_gateway" in resolve_effective_integrations(env_integrations=records)
 
 
-def test_successful_payloads_and_discovery_scrub_the_configured_token() -> None:
+def test_successful_payloads_scrub_the_configured_token() -> None:
     token = "sample-token"
     config = McpGatewayConfig(url="https://mcp.example.test/mcp", auth_token=token)
     response = {
@@ -283,9 +283,7 @@ def test_successful_payloads_and_discovery_scrub_the_configured_token() -> None:
         patch("integrations.mcp_gateway.client.call_mcp_tool", return_value=response),
     ):
         client = McpGatewayClient(config)
-        descriptors = client.list_tools()
         result = client.call_tool("status")
     assert token not in repr(result)
-    assert token not in repr(descriptors)
     assert result["structured_content"] == {"items": [{"[redacted]": "[redacted]"}], "count": 1}
     assert token in repr(response)
