@@ -118,6 +118,11 @@ def test_scrolled_back_view_holds_its_passage_while_output_streams() -> None:
     store.append_text(" finished\nline 11\nline 12\n")
     assert _visible(view) == before
 
+    store.append_text("an unfinished line that wraps once the window is narrow")
+    held = _visible(view, width=60)
+    _visible(view, width=20)
+    assert _visible(view, width=60) == held
+
     store.clear()
     store.append_text("fresh\n")
     assert _visible(view)[-1] == "fresh"

@@ -115,8 +115,7 @@ class TranscriptMark:
 
     epoch: int
     seq: int
-    width: int
-    pending_rows: int
+    pending: str
 
 
 @dataclass(frozen=True)
@@ -202,8 +201,8 @@ class TranscriptStore:
 
     def tail_rows(self, width: int, count: int) -> tuple[list[Row], bool]:
         """Return the newest ``count`` rows at ``width`` and whether older rows exist."""
-        entries, pending_rows, _epoch, _seq = self._snapshot(width)
-        return _collect_tail(entries, pending_rows, width, count)
+        entries, pending, _epoch, _seq = self._snapshot()
+        return _collect_tail(entries, _pending_rows(pending, width), width, count)
 
     def window(
         self, width: int, height: int, offset: int, anchor: TranscriptMark | None
@@ -214,8 +213,9 @@ class TranscriptStore:
         added to ``offset`` so a scrolled-back view stays on the same passage.
         A cleared transcript returns the view to the newest row.
         """
-        entries, pending_rows, epoch, seq = self._snapshot(width)
-        mark = TranscriptMark(epoch, seq, width, len(pending_rows))
+        entries, pending, epoch, seq = self._snapshot()
+        pending_rows = _pending_rows(pending, width)
+        mark = TranscriptMark(epoch, seq, pending)
         if offset > 0 and anchor is not None:
             if anchor.epoch != epoch:
                 offset = 0
@@ -227,13 +227,14 @@ class TranscriptStore:
         end = len(rows) - offset
         return TranscriptWindow(rows[max(0, end - height) : end], offset, mark)
 
-    def _snapshot(self, width: int) -> tuple[list[TranscriptEntry], list[Row], int, int]:
+    def _snapshot(self) -> tuple[list[TranscriptEntry], str, int, int]:
         with self._lock:
-            entries = list(self._entries)
-            pending = _resolve_carriage_returns(self._pending)
-            epoch, seq = self._epoch, self._seq
-        pending_rows = list(render_rows(ansi_renderable(pending), width)) if pending else []
-        return entries, pending_rows, epoch, seq
+            return (
+                list(self._entries),
+                _resolve_carriage_returns(self._pending),
+                self._epoch,
+                self._seq,
+            )
 
     def take_unflushed(self) -> list[TranscriptEntry]:
         """Return entries not yet in terminal scrollback, marking them as written."""
@@ -290,14 +291,22 @@ def _collect_tail(
 def _rows_since(
     entries: list[TranscriptEntry], pending_rows: list[Row], anchor: TranscriptMark, width: int
 ) -> int:
-    """Rows added below ``anchor``; its partial line is counted once, not twice."""
+    """Rows added below ``anchor`` at ``width``.
+
+    The anchor's partial line is re-rendered at ``width`` and subtracted, so it
+    is counted once whether it is still pending or has since become an entry,
+    and a resize alone adds nothing.
+    """
     added = 0
     for entry in reversed(entries):
         if entry.seq <= anchor.seq:
             break
         added += len(entry.rows(width))
-    previous_pending = anchor.pending_rows if anchor.width == width else 0
-    return added + len(pending_rows) - previous_pending
+    return added + len(pending_rows) - len(_pending_rows(anchor.pending, width))
+
+
+def _pending_rows(pending: str, width: int) -> list[Row]:
+    return list(render_rows(ansi_renderable(pending), width)) if pending else []
 
 
 def render_for_scrollback(entries: Iterable[TranscriptEntry], width: int) -> str:
