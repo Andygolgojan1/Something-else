@@ -9,7 +9,11 @@ from prompt_toolkit.formatted_text import StyleAndTextTuples
 from prompt_toolkit.layout.controls import UIContent, UIControl
 from prompt_toolkit.mouse_events import MouseEvent, MouseEventType
 
-from surfaces.interactive_shell.ui.transcript_view.store import Row, TranscriptStore
+from surfaces.interactive_shell.ui.transcript_view.store import (
+    Row,
+    TranscriptMark,
+    TranscriptStore,
+)
 
 if TYPE_CHECKING:
     from prompt_toolkit.key_binding.key_bindings import NotImplementedOrNone
@@ -22,13 +26,15 @@ class TranscriptControl(UIControl):
     """Bottom-anchored transcript viewport, scrolled by rows from the newest line.
 
     Only the rows needed for the visible window are rendered, so a resize costs
-    one screen of rendering however long the session is.
+    one screen of rendering however long the session is. While scrolled back,
+    rows that arrive below are added to the offset so the passage holds still.
     """
 
     def __init__(self, store: TranscriptStore) -> None:
         self._store = store
         self._offset = 0
         self._page = 1
+        self._mark: TranscriptMark | None = None
         self._lock = threading.Lock()
 
     @property
@@ -42,15 +48,14 @@ class TranscriptControl(UIControl):
     def create_content(self, width: int, height: int) -> UIContent:
         height = max(0, height)
         with self._lock:
-            offset = self._offset
+            offset, anchor = self._offset, self._mark
             self._page = max(1, height - 1)
-        rows, older = self._store.tail_rows(max(1, width), height + offset)
-        if not older:
-            offset = min(offset, max(0, len(rows) - height))
-            with self._lock:
-                self._offset = offset
-        end = len(rows) - offset
-        visible: list[Row] = rows[max(0, end - height) : end]
+        window = self._store.window(max(1, width), height, offset, anchor)
+        with self._lock:
+            # A scroll that landed during the render applies on top.
+            self._offset = max(0, self._offset - offset + window.offset)
+            self._mark = window.mark
+        visible: list[Row] = window.rows
         if len(visible) < height:
             visible = [() for _ in range(height - len(visible))] + visible
 

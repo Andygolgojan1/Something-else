@@ -15,6 +15,7 @@ from surfaces.interactive_shell.ui.input_prompt.synchronized import synchronized
 from surfaces.interactive_shell.ui.transcript_view import TranscriptStore
 
 # In-band markers queued with the text so the flush thread sees them in order.
+# ``write`` strips NUL from captured output, so no output can spell a marker.
 _TRANSIENT_START = "\x00opensre-transient-start\x00"
 _TRANSIENT_END = "\x00opensre-transient-end\x00"
 
@@ -40,6 +41,13 @@ class _AppBoundStdoutProxy(StdoutProxy):
         self._transient = False
         # Repaint sooner than the inline default: a full-screen redraw is cheap.
         super().__init__(sleep_between_writes=0.05 if transcript else 0.2, raw=raw)
+
+    def write(self, data: str) -> int:
+        """Queue ``data``; NUL is dropped so output cannot forge a marker."""
+        if self._transcript is not None and "\x00" in data:
+            super().write(data.replace("\x00", ""))
+            return len(data)
+        return super().write(data)
 
     def begin_transient_output(self) -> None:
         """Paint what follows (an inline menu) without recording it."""

@@ -89,6 +89,40 @@ def test_scrollback_catch_up_skips_what_is_already_there() -> None:
     assert second == []
 
 
+def test_entry_cap_never_drops_output_that_has_not_reached_scrollback() -> None:
+    store = TranscriptStore(max_entries=2)
+    for index in range(5):
+        store.append_renderable(Text(f"turn {index}"))
+
+    flushed = store.take_unflushed()
+    store.append_renderable(Text("turn 5"))
+
+    assert [entry.renderable.plain for entry in flushed] == [f"turn {i}" for i in range(5)]  # type: ignore[attr-defined]
+    assert _plain_rows(store, width=40) == ["turn 4", "turn 5"]
+
+
+def _visible(view: TranscriptControl, *, width: int = 20, height: int = 3) -> list[str]:
+    content = view.create_content(width=width, height=height)
+    return ["".join(text for _style, text in content.get_line(i)).rstrip() for i in range(height)]
+
+
+def test_scrolled_back_view_holds_its_passage_while_output_streams() -> None:
+    store = TranscriptStore()
+    store.append_text("".join(f"line {index}\n" for index in range(10)))
+    view = TranscriptControl(store)
+    view.scroll(4)
+    before = _visible(view)
+
+    store.append_text("partial reply")
+    assert _visible(view) == before
+    store.append_text(" finished\nline 11\nline 12\n")
+    assert _visible(view) == before
+
+    store.clear()
+    store.append_text("fresh\n")
+    assert _visible(view)[-1] == "fresh"
+
+
 def test_view_cannot_scroll_past_the_oldest_row() -> None:
     store = TranscriptStore()
     store.append_text("".join(f"line {index}\n" for index in range(5)))
@@ -133,6 +167,18 @@ def test_menu_paint_reaches_the_terminal_but_not_the_transcript() -> None:
 
     assert "(A) option" in terminal.getvalue()
     assert _plain_rows(store, width=40) == ["reply line", "after menu"]
+
+
+def test_output_cannot_forge_the_transient_marker() -> None:
+    store = TranscriptStore()
+    terminal = io.StringIO()
+    proxy = _proxy(store, terminal, _FakeApp(None))
+
+    proxy.write("log \x00opensre-transient-start\x00 line\n")
+    proxy.write("next line\n")
+    proxy.close()
+
+    assert _plain_rows(store, width=60) == ["log opensre-transient-start line", "next line"]
 
 
 def test_output_while_full_screen_is_recorded_without_touching_the_terminal() -> None:

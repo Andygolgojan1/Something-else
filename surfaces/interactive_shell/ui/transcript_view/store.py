@@ -25,7 +25,7 @@ from rich.text import Text
 Fragment = tuple[str, str]
 Row = tuple[Fragment, ...]
 
-# Keep the newest entries; older ones fall out of the full-screen view only.
+# Entries kept once they are in scrollback; unflushed entries are never dropped.
 _MAX_ENTRIES = 20_000
 # A drag visits many widths; remember rows for the latest few per entry.
 _WIDTH_CACHE_SIZE = 3
@@ -109,12 +109,32 @@ def render_rows(renderable: RenderableType, width: int) -> tuple[Row, ...]:
     return tuple(rows)
 
 
+@dataclass(frozen=True)
+class TranscriptMark:
+    """Where the transcript ended at one paint; anchors a scrolled-back view."""
+
+    epoch: int
+    seq: int
+    width: int
+    pending_rows: int
+
+
+@dataclass(frozen=True)
+class TranscriptWindow:
+    """Rows for one paint: ``rows`` ends ``offset`` rows above the newest row."""
+
+    rows: list[Row]
+    offset: int
+    mark: TranscriptMark
+
+
 @dataclass(eq=False)
 class TranscriptEntry:
     """One printed block; ``on_normal_screen`` once it is in terminal scrollback."""
 
     renderable: RenderableType
     on_normal_screen: bool = False
+    seq: int = 0
     _rows: OrderedDict[int, tuple[Row, ...]] = field(default_factory=OrderedDict, repr=False)
 
     def rows(self, width: int) -> tuple[Row, ...]:
@@ -133,17 +153,14 @@ class TranscriptStore:
     """Thread-safe transcript: writers append, the full-screen view reads the tail."""
 
     def __init__(self, *, max_entries: int = _MAX_ENTRIES) -> None:
-        self._entries: deque[TranscriptEntry] = deque(maxlen=max(1, max_entries))
+        self._entries: deque[TranscriptEntry] = deque()
+        self._max_entries = max(1, max_entries)
         self._pending = ""
         self._pending_on_normal_screen = False
-        self._generation = 0
+        self._seq = 0
+        self._epoch = 0
         self._lock = threading.RLock()
         self.on_change: Callable[[], None] | None = None
-
-    @property
-    def generation(self) -> int:
-        """Increments on every change; lets the view keep its scroll anchor."""
-        return self._generation
 
     def append_renderable(
         self, renderable: RenderableType, *, on_normal_screen: bool = False
@@ -151,7 +168,7 @@ class TranscriptStore:
         """Add a block that is re-rendered at the current width on every paint."""
         with self._lock:
             self._close_pending_line()
-            self._entries.append(TranscriptEntry(renderable, on_normal_screen=on_normal_screen))
+            self._append_entry(renderable, on_normal_screen=on_normal_screen)
             self._changed()
 
     def append_text(self, text: str, *, on_normal_screen: bool = False) -> None:
@@ -172,9 +189,7 @@ class TranscriptStore:
                 lines = [_resolve_carriage_returns(line) for line in complete.split("\n")]
                 # A line started off-screen is only in scrollback if all of it is.
                 written = on_normal_screen and (self._pending_on_normal_screen or not self._pending)
-                self._entries.append(
-                    TranscriptEntry(ansi_renderable("\n".join(lines)), on_normal_screen=written)
-                )
+                self._append_entry(ansi_renderable("\n".join(lines)), on_normal_screen=written)
             self._pending = rest
             self._pending_on_normal_screen = on_normal_screen
             self._changed()
@@ -187,17 +202,38 @@ class TranscriptStore:
 
     def tail_rows(self, width: int, count: int) -> tuple[list[Row], bool]:
         """Return the newest ``count`` rows at ``width`` and whether older rows exist."""
+        entries, pending_rows, _epoch, _seq = self._snapshot(width)
+        return _collect_tail(entries, pending_rows, width, count)
+
+    def window(
+        self, width: int, height: int, offset: int, anchor: TranscriptMark | None
+    ) -> TranscriptWindow:
+        """Return rows for a ``height``-row view scrolled ``offset`` rows back.
+
+        With an ``anchor`` from the previous paint, rows that arrived since are
+        added to ``offset`` so a scrolled-back view stays on the same passage.
+        A cleared transcript returns the view to the newest row.
+        """
+        entries, pending_rows, epoch, seq = self._snapshot(width)
+        mark = TranscriptMark(epoch, seq, width, len(pending_rows))
+        if offset > 0 and anchor is not None:
+            if anchor.epoch != epoch:
+                offset = 0
+            else:
+                offset = max(0, offset + _rows_since(entries, pending_rows, anchor, width))
+        rows, older = _collect_tail(entries, pending_rows, width, height + offset)
+        if not older:
+            offset = min(offset, max(0, len(rows) - height))
+        end = len(rows) - offset
+        return TranscriptWindow(rows[max(0, end - height) : end], offset, mark)
+
+    def _snapshot(self, width: int) -> tuple[list[TranscriptEntry], list[Row], int, int]:
         with self._lock:
             entries = list(self._entries)
             pending = _resolve_carriage_returns(self._pending)
-        rows: list[Row] = []
-        if pending:
-            rows = list(render_rows(ansi_renderable(pending), width))
-        for entry in reversed(entries):
-            if len(rows) >= count:
-                return rows[-count:], True
-            rows[:0] = entry.rows(width)
-        return rows[-count:] if len(rows) > count else rows, len(rows) > count
+            epoch, seq = self._epoch, self._seq
+        pending_rows = list(render_rows(ansi_renderable(pending), width)) if pending else []
+        return entries, pending_rows, epoch, seq
 
     def take_unflushed(self) -> list[TranscriptEntry]:
         """Return entries not yet in terminal scrollback, marking them as written."""
@@ -206,27 +242,62 @@ class TranscriptStore:
             unflushed = [entry for entry in self._entries if not entry.on_normal_screen]
             for entry in unflushed:
                 entry.on_normal_screen = True
+            self._trim_locked()
             return unflushed
 
     def _close_pending_line(self) -> None:
         if self._pending:
             line = _resolve_carriage_returns(self._pending)
-            self._entries.append(
-                TranscriptEntry(
-                    ansi_renderable(line), on_normal_screen=self._pending_on_normal_screen
-                )
-            )
             self._pending = ""
+            self._append_entry(
+                ansi_renderable(line), on_normal_screen=self._pending_on_normal_screen
+            )
+
+    def _append_entry(self, renderable: RenderableType, *, on_normal_screen: bool) -> None:
+        self._seq += 1
+        self._entries.append(
+            TranscriptEntry(renderable, on_normal_screen=on_normal_screen, seq=self._seq)
+        )
+        self._trim_locked()
+
+    def _trim_locked(self) -> None:
+        # Only drop what scrollback already holds, so a flush never loses output.
+        while len(self._entries) > self._max_entries and self._entries[0].on_normal_screen:
+            self._entries.popleft()
 
     def _clear_locked(self) -> None:
         self._entries.clear()
         self._pending = ""
+        self._epoch += 1
 
     def _changed(self) -> None:
-        self._generation += 1
         callback = self.on_change
         if callback is not None:
             callback()
+
+
+def _collect_tail(
+    entries: list[TranscriptEntry], pending_rows: list[Row], width: int, count: int
+) -> tuple[list[Row], bool]:
+    rows = list(pending_rows)
+    for entry in reversed(entries):
+        if len(rows) >= count:
+            return rows[-count:], True
+        rows[:0] = entry.rows(width)
+    return rows[-count:] if len(rows) > count else rows, len(rows) > count
+
+
+def _rows_since(
+    entries: list[TranscriptEntry], pending_rows: list[Row], anchor: TranscriptMark, width: int
+) -> int:
+    """Rows added below ``anchor``; its partial line is counted once, not twice."""
+    added = 0
+    for entry in reversed(entries):
+        if entry.seq <= anchor.seq:
+            break
+        added += len(entry.rows(width))
+    previous_pending = anchor.pending_rows if anchor.width == width else 0
+    return added + len(pending_rows) - previous_pending
 
 
 def render_for_scrollback(entries: Iterable[TranscriptEntry], width: int) -> str:
@@ -248,7 +319,9 @@ def render_for_scrollback(entries: Iterable[TranscriptEntry], width: int) -> str
 __all__ = [
     "Row",
     "TranscriptEntry",
+    "TranscriptMark",
     "TranscriptStore",
+    "TranscriptWindow",
     "ansi_renderable",
     "render_for_scrollback",
     "render_rows",
