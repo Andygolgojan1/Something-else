@@ -149,3 +149,16 @@ def test_preview_preserves_resource_names_and_ordinary_bearer_phrases() -> None:
     for key in ("service", "target", "name", "message"):
         assert arguments[key] in preview
     assert arguments["value"] not in preview
+
+
+def test_short_bearer_values_and_authorization_headers_are_redacted() -> None:
+    preview = format_json_preview(
+        {
+            "message": "Bearer sample-token",
+            "diagnostic": "Echo Bearer sample-token",
+            "header": "Authorization: Bearer tiny",
+        }
+    )
+    assert "sample-token" not in preview
+    assert "tiny" not in preview
+    assert "REDACTED" in preview

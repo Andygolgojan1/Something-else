@@ -10,7 +10,10 @@ from rich.console import Console
 from config.constants.repl_autonomy import ASK_AT_EVERY_AUTO_LEVEL_TOOL_NAMES
 from config.constants.tooling import ToolBlockedBy
 from core.tool import BeforeToolCallResult, ToolExecutionHooks, ToolExecutionRequest
-from infrastructure.observability.trace.redaction import format_json_preview
+from infrastructure.observability.trace.redaction import (
+    DEFAULT_JSON_PREVIEW_MAX_CHARS,
+    format_json_preview,
+)
 from infrastructure.safety.terminal_output import strip_terminal_controls
 from surfaces.interactive_shell.session import Session
 from surfaces.interactive_shell.ui.execution_confirm import execution_allowed
@@ -62,7 +65,15 @@ class _ShellApproval:
         if not requires_approval and tool_name not in ASK_AT_EVERY_AUTO_LEVEL_TOOL_NAMES:
             return self._later_decision(request)
 
-        approved = self._user_approves(request)
+        preview = (
+            format_json_preview(request.arguments, max_chars=None) if request.arguments else ""
+        )
+        if len(preview) > DEFAULT_JSON_PREVIEW_MAX_CHARS:
+            return BeforeToolCallResult(
+                blocked=True,
+                reason="Tool arguments exceed the approval display limit. Reduce the payload before retrying.",
+            )
+        approved = self._user_approves(request, preview)
         if not approved:
             return _declined(tool_name)
 
@@ -76,13 +87,12 @@ class _ShellApproval:
             return None
         return self.later_hook(request)
 
-    def _user_approves(self, request: ToolExecutionRequest) -> bool:
+    def _user_approves(self, request: ToolExecutionRequest, preview: str) -> bool:
         tool = request.tool
         tool_name = request.tool_call.name
         reason = str(getattr(tool, "approval_reason", "") or _DEFAULT_REASON)
         shown_name = str(getattr(tool, "display_name", "") or tool_name)
-        if request.arguments:
-            preview = format_json_preview(request.arguments, max_chars=240)
+        if preview:
             shown_name = f"{shown_name} · {strip_terminal_controls(' '.join(preview.split()))}"
         verdict = ask_tool(tool_name, reason)
         approved = execution_allowed(

@@ -92,14 +92,16 @@ def redact_tool_view(tool_input: Any, output: Any | None = None) -> RedactedTool
     )
 
 
-def format_json_preview(value: Any, *, max_chars: int = DEFAULT_JSON_PREVIEW_MAX_CHARS) -> str:
+def format_json_preview(
+    value: Any, *, max_chars: int | None = DEFAULT_JSON_PREVIEW_MAX_CHARS
+) -> str:
     """Pretty-print a redacted JSON-ish value, bounded for terminal output."""
     redacted = redact_sensitive(value)
     try:
         text = json.dumps(redacted, indent=_JSON_PREVIEW_INDENT, default=str)
     except TypeError:
         text = str(redacted)
-    if len(text) <= max_chars:
+    if max_chars is None or len(text) <= max_chars:
         return text
     keep = max(0, max_chars - len(_JSON_TRUNCATION_SUFFIX))
     return text[:keep].rstrip() + _JSON_TRUNCATION_SUFFIX

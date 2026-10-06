@@ -1,13 +1,7 @@
-"""Opt-in end-to-end validation against the local sample MCP server.
-
-Run with::
-
-    OPENSRE_LIVE_MCP_GATEWAY=1 uv run pytest tests/e2e/mcp_gateway/test_local_gateway.py -q
-"""
+"""Protocol integration tests against the local simulated MCP sample server."""
 
 from __future__ import annotations
 
-import os
 import socket
 import subprocess
 import sys
@@ -18,15 +12,7 @@ import pytest
 
 from integrations.mcp_gateway import McpGatewayClient, McpGatewayConfig, McpGatewayRequestError
 
-pytestmark = [
-    pytest.mark.e2e,
-    pytest.mark.skipif(
-        os.environ.get("OPENSRE_LIVE_MCP_GATEWAY") != "1",
-        reason="Set OPENSRE_LIVE_MCP_GATEWAY=1 to run the local MCP gateway e2e test",
-    ),
-]
-
-_REPO_ROOT = Path(__file__).resolve().parents[3]
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 _SAMPLE_SERVER = _REPO_ROOT / "examples" / "mcp_gateway_server.py"
 
 

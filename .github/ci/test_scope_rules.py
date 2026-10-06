@@ -163,7 +163,7 @@ RULES: tuple[PathRule, ...] = (
         (
             "tests/integrations/test_mcp_gateway.py",
             "tests/tools/test_mcp_gateway_tool.py",
-            "tests/e2e/mcp_gateway/test_local_gateway.py",
+            "tests/integrations/test_mcp_gateway_protocol.py",
         ),
     ),
     PathRule(
@@ -629,7 +629,7 @@ RULES: tuple[PathRule, ...] = (
     PathRule(".env.example", ("tests/config/",)),
     PathRule(
         "examples/mcp_gateway_server.py",
-        ("tests/e2e/mcp_gateway/test_local_gateway.py",),
+        ("tests/integrations/test_mcp_gateway_protocol.py",),
     ),
     PathRule("pyproject.toml", ("tests/packaging/", "tests/config/")),
     PathRule("uv.lock", ("tests/packaging/", "tests/config/")),

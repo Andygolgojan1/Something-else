@@ -7,6 +7,7 @@ from typing import TypedDict, cast
 from integrations.mcp_client import McpSessionOptions, call_mcp_tool, list_mcp_tools
 from integrations.mcp_gateway.config import McpGatewayConfig
 from integrations.mcp_gateway.errors import McpGatewayRefused, safe_request_error
+from integrations.mcp_gateway.redaction import scrub_configured_token
 
 
 class McpGatewayToolDescriptor(TypedDict):
@@ -46,7 +47,7 @@ class McpGatewayClient:
                 timeout_seconds=self.config.timeout_seconds,
             )
         else:
-            return [
+            descriptors = [
                 {
                     "name": tool.name,
                     "description": tool.description or "",
@@ -54,6 +55,10 @@ class McpGatewayClient:
                 }
                 for tool in tools
             ]
+            return cast(
+                list[McpGatewayToolDescriptor],
+                scrub_configured_token(descriptors, self.config.auth_token),
+            )
         raise error
 
     def list_tools(self) -> list[McpGatewayToolDescriptor]:
@@ -85,16 +90,13 @@ class McpGatewayClient:
             raise McpGatewayRefused(f"MCP gateway tool '{name}' is not advertised by the server.")
 
         try:
-            return cast(
-                dict[str, object],
-                call_mcp_tool(
-                    self.config,
-                    name,
-                    arguments,
-                    timeout_call=False,
-                    timeout_entire_operation=True,
-                    **self._session_options(),
-                ),
+            result = call_mcp_tool(
+                self.config,
+                name,
+                arguments,
+                timeout_call=False,
+                timeout_entire_operation=True,
+                **self._session_options(),
             )
         except Exception as exc:
             error = safe_request_error(
@@ -102,4 +104,6 @@ class McpGatewayClient:
                 auth_token=self.config.auth_token,
                 timeout_seconds=self.config.timeout_seconds,
             )
+        else:
+            return cast(dict[str, object], scrub_configured_token(result, self.config.auth_token))
         raise error

@@ -108,7 +108,7 @@ def test_requires_approval_metadata_prompts_at_default_auto_level() -> None:
             "call_mcp_gateway_tool",
             {
                 "tool_name": "restart_service",
-                "arguments": {"service": "prod", "api_token": "test-credential-with-long-value"},
+                "arguments": {"service": "prod", "api_token": "sample-token"},
             },
         )
     )
@@ -119,7 +119,7 @@ def test_requires_approval_metadata_prompts_at_default_auto_level() -> None:
     assert len(asked) == 1
     assert "restart_service" in printed.getvalue()
     assert '"service": "prod"' in printed.getvalue()
-    assert "test-credential-with-long-value" not in printed.getvalue()
+    assert "sample-token" not in printed.getvalue()
 
 
 def test_generated_code_asks_at_every_auto_level() -> None:
@@ -134,12 +134,12 @@ def test_generated_code_asks_at_every_auto_level() -> None:
             {
                 "items": [
                     {
-                        "header": "Bearer test-credential-with-long-value",
+                        "header": "Bearer sample-token",
                         "value": "sk-testcredentialtestcredential",
                     }
                 ]
             },
-            ("test-credential-with-long-value", "sk-testcredentialtestcredential"),
+            ("sample-token", "sk-testcredentialtestcredential"),
         ),
         (
             {"body": "-----BEGIN PRIVATE KEY-----\nkey-material\n-----END PRIVATE KEY-----"},
@@ -167,3 +167,42 @@ def test_approval_preview_scrubs_nested_credentials(
     for secret in secrets:
         assert secret not in preview
     assert payload == {"service": "prod", **credential}
+
+
+def test_approval_keeps_later_mutation_targets_visible() -> None:
+    console, printed = _console()
+    hooks = with_shell_approval(
+        None, session=Session(), console=console, confirm_fn=lambda _prompt: "y", is_tty=True
+    )
+    assert hooks.before_tool_call is not None
+    decision = hooks.before_tool_call(
+        _request(
+            "call_mcp_gateway_tool",
+            {
+                "tool_name": "restart_service",
+                "arguments": {"padding": "x" * 300, "service": "prod"},
+            },
+        )
+    )
+    assert decision == BeforeToolCallResult(approved=True)
+    assert '"service": "prod"' in " ".join(printed.getvalue().split())
+
+
+def test_approval_blocks_payloads_that_cannot_be_fully_displayed() -> None:
+    console, _printed = _console()
+    asked: list[str] = []
+
+    def confirm(prompt: str) -> str:
+        asked.append(prompt)
+        return "y"
+
+    hooks = with_shell_approval(
+        None, session=Session(), console=console, confirm_fn=confirm, is_tty=True
+    )
+    assert hooks.before_tool_call is not None
+    decision = hooks.before_tool_call(
+        _request("call_mcp_gateway_tool", {"arguments": {"padding": "x" * 5000, "service": "prod"}})
+    )
+    assert decision is not None and decision.blocked and not decision.approved
+    assert "display limit" in decision.reason
+    assert asked == []

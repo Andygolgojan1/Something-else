@@ -33,6 +33,21 @@ def _build_default_rules() -> tuple[RedactionRule, ...]:
         ("openai_key", r"\bsk-(?!ant-)[A-Za-z0-9_\-]{20,}", "[REDACTED:openai_key]"),
         ("slack_token", r"xox[bopas]-[A-Za-z0-9-]{10,}", "[REDACTED:slack_token]"),
         ("stripe_key", r"sk_(?:live|test)_[A-Za-z0-9]{24,}", "[REDACTED:stripe_key]"),
+        (
+            "bearer_value",
+            r"(?i)^(\s*bearer\s+)[A-Za-z0-9._~+/-]+=*(\s*)$",
+            r"\1[REDACTED]\2",
+        ),
+        (
+            "bearer_header",
+            r"(?i)\b((?:proxy-)?authorization\s*[:=]\s*bearer\s+)[A-Za-z0-9._~+/-]+=*",
+            r"\1[REDACTED]",
+        ),
+        (
+            "bearer_token",
+            r"(?i)\bbearer\s+(?=[A-Za-z0-9._~+/-]*[0-9._~+/=-])[A-Za-z0-9._~+/-]+=*",
+            "Bearer [REDACTED]",
+        ),
         ("bearer", r"(?i)\bbearer\s+[A-Za-z0-9._~+/-]{16,}=*", "Bearer [REDACTED]"),
         (
             "jwt",

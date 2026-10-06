@@ -70,8 +70,7 @@ uv run opensre integrations verify mcp_gateway
 Run the automated protocol test with:
 
 ```bash
-OPENSRE_LIVE_MCP_GATEWAY=1 \
-  uv run pytest tests/e2e/mcp_gateway/test_local_gateway.py -q
+uv run pytest tests/integrations/test_mcp_gateway_protocol.py -q
 ```
 
 The test starts the sample server, discovers both tools, calls the certified read path, calls the simulated mutation path, and shuts the server down.
