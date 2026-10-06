@@ -109,20 +109,18 @@ Restart the terminal, then `make --version`.
 
 ### Option C: No Make
 
-Run equivalents from the repo root (same shell where `uv` is on `PATH`). Prefer **`make test-cov`** when possible — the full pytest line is in the [`Makefile`](Makefile) under the `test-cov` target (`pytest -n auto`, coverage, and ignores).
+Run the setup commands from the repo root in the shell where `uv` is on `PATH`:
 
 ```bash
 uv sync --frozen --extra dev
 uv run python -m infrastructure.analytics.install
-
-uv run ruff check config core gateway integrations infrastructure surfaces tools tests/
-uv run ruff format --check config core gateway integrations infrastructure surfaces tools tests/
-uv run mypy config core gateway integrations infrastructure surfaces tools
-
-uv run pytest -n auto -v \
-  --cov=config --cov=core --cov=gateway --cov=integrations \
-  --cov=infrastructure --cov=surfaces --cov=tools --cov-report=term-missing
+uv run python .github/ci/install_hooks.py
+uv run opensre --version
 ```
+
+Follow [CI.md](CI.md) for focused validation. Without Make, invoke the scope
+selector with `uv run python .github/ci/run_test_scope.py`, or run the closest
+pytest target directly. Do not duplicate PR CI with a full local checklist.
 
 ---
 

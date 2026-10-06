@@ -2,9 +2,14 @@
 
 ## Quick-start commands
 
+Follow [CI.md](../CI.md) for required local validation. Start with the closest
+regression tests or `make test-scope`; full-suite and coverage commands below
+are available for a specific investigation, not a mandatory local checklist.
+
 | Goal | Command | When to use it |
 |---|---|---|
-| Run the default unit suite with coverage | `make test-cov` | First thing to run locally; no live infrastructure required. |
+| Run affected tests | `make test-scope` | Focused feedback while changing behavior; see CI.md for documentation-contract exceptions. |
+| Run the default unit suite with coverage | `make test-cov` | Diagnose a coverage concern; the regular coverage report runs on `main`. |
 | Verify all integration configs and clients | `make verify-integrations` | After adding or changing an integration. |
 | Run the default pytest collection (`tests/e2e` excluded by pytest configuration) | `make test-full` | Broad local or CI regression run. |
 
