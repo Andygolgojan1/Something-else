@@ -109,5 +109,5 @@ def test_requires_approval_metadata_prompts_at_default_auto_level() -> None:
     assert len(asked) == 1
 
 
-def test_no_tool_asks_at_every_auto_level() -> None:
-    assert not ASK_AT_EVERY_AUTO_LEVEL_TOOL_NAMES
+def test_generated_code_asks_at_every_auto_level() -> None:
+    assert frozenset({"execute_python_code"}) == ASK_AT_EVERY_AUTO_LEVEL_TOOL_NAMES
