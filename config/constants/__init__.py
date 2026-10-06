@@ -800,6 +800,21 @@ if TYPE_CHECKING:
     from config.constants.mcp import (
         MCP_TERMINAL_ENV as MCP_TERMINAL_ENV,
     )
+    from config.constants.mcp_gateway import (
+        MCP_GATEWAY_ALLOWED_TOOLS_ENV as MCP_GATEWAY_ALLOWED_TOOLS_ENV,
+    )
+    from config.constants.mcp_gateway import (
+        MCP_GATEWAY_AUTH_TOKEN_ENV as MCP_GATEWAY_AUTH_TOKEN_ENV,
+    )
+    from config.constants.mcp_gateway import (
+        MCP_GATEWAY_DEFAULT_TIMEOUT_SECONDS as MCP_GATEWAY_DEFAULT_TIMEOUT_SECONDS,
+    )
+    from config.constants.mcp_gateway import (
+        MCP_GATEWAY_READ_ONLY_TOOLS_ENV as MCP_GATEWAY_READ_ONLY_TOOLS_ENV,
+    )
+    from config.constants.mcp_gateway import (
+        MCP_GATEWAY_URL_ENV as MCP_GATEWAY_URL_ENV,
+    )
     from config.constants.memory import (
         MEMORY_TOOL_NAMES as MEMORY_TOOL_NAMES,
     )

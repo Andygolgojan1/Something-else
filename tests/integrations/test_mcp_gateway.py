@@ -14,6 +14,7 @@ from integrations.mcp_gateway import (
     McpGatewayClient,
     McpGatewayConfig,
     McpGatewayRefused,
+    McpGatewayRequestError,
     build_mcp_gateway_config,
     describe_mcp_gateway_error,
     validate_mcp_gateway_config,
@@ -108,6 +109,18 @@ def test_client_refuses_unknown_advertised_tool_before_invocation() -> None:
     call_tool.assert_not_called()
 
 
+def test_client_reports_the_effective_timeout() -> None:
+    config = McpGatewayConfig(
+        url="https://mcp.example.test/mcp",
+        timeout_seconds=7.5,
+    )
+    with (
+        patch("integrations.mcp_gateway.client.list_mcp_tools", side_effect=TimeoutError),
+        pytest.raises(McpGatewayRequestError, match="7.5 seconds"),
+    ):
+        McpGatewayClient(config).list_all_tools()
+
+
 def test_validation_requires_configured_names_to_be_advertised() -> None:
     config = build_mcp_gateway_config(
         {
@@ -183,6 +196,16 @@ def test_mcp_not_found_error_gets_endpoint_hint() -> None:
 
     assert "MCP_GATEWAY_URL" in detail
     assert "/mcp" in detail
+
+
+def test_timeout_description_uses_effective_configured_value() -> None:
+    detail = describe_mcp_gateway_error(
+        TimeoutError(),
+        auth_token="",
+        timeout_seconds=7.5,
+    )
+
+    assert detail == "MCP gateway operation timed out after 7.5 seconds."
 
 
 def test_registry_resolves_public_aliases() -> None:

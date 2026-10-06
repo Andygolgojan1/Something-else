@@ -1,4 +1,4 @@
-"""Tool hooks that make the shell ask before an organization-wide tool runs."""
+"""Tool hooks that enforce approval metadata in the interactive shell."""
 
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ def with_shell_approval(
 
 @dataclass(frozen=True)
 class _ShellApproval:
-    """Asks the user about always-ask tools, then hands over to the later hook."""
+    """Asks about approval-required tools, then hands over to the later hook."""
 
     session: Session
     console: Console
@@ -56,7 +56,8 @@ class _ShellApproval:
 
     def before_tool_call(self, request: ToolExecutionRequest) -> BeforeToolCallResult | None:
         tool_name = request.tool_call.name
-        if tool_name not in ASK_AT_EVERY_AUTO_LEVEL_TOOL_NAMES:
+        requires_approval = bool(getattr(request.tool, "requires_approval", False))
+        if not requires_approval and tool_name not in ASK_AT_EVERY_AUTO_LEVEL_TOOL_NAMES:
             return self._later_decision(request)
 
         approved = self._user_approves(request)

@@ -1,4 +1,4 @@
-"""Tests for the shell's approval hook: no tool asks at the default auto level."""
+"""Tests for the interactive shell's tool approval hook."""
 
 from __future__ import annotations
 
@@ -83,6 +83,30 @@ def test_other_tools_are_not_asked_about() -> None:
     # Assert
     assert decision is None
     assert asked == [] and printed.getvalue() == ""
+
+
+def test_requires_approval_metadata_prompts_at_default_auto_level() -> None:
+    # Arrange
+    session = Session()
+    console, _printed = _console()
+    asked: list[str] = []
+
+    def confirm(prompt: str) -> str:
+        asked.append(prompt)
+        return "y"
+
+    hooks = with_shell_approval(
+        None, session=session, console=console, confirm_fn=confirm, is_tty=True
+    )
+    assert hooks.before_tool_call is not None
+
+    # Act
+    decision = hooks.before_tool_call(_request("call_mcp_gateway_tool"))
+
+    # Assert
+    assert session.terminal.auto_level == DEFAULT_AUTO_LEVEL == AutoLevel.HIGH
+    assert decision == BeforeToolCallResult(approved=True)
+    assert len(asked) == 1
 
 
 def test_no_tool_asks_at_every_auto_level() -> None:

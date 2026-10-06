@@ -10,10 +10,14 @@ from core.tool_framework import tool
 from core.tool_framework.utils import build_mcp_tool_listing, unavailable_response
 from integrations.mcp_gateway.client import McpGatewayClient
 from integrations.mcp_gateway.config import build_mcp_gateway_config
-from integrations.mcp_gateway.errors import McpGatewayRefused, McpGatewayRequestError
+from integrations.mcp_gateway.errors import (
+    McpGatewayRefused,
+    McpGatewayRequestError,
+)
 
 _COMPONENT = "integrations.mcp_gateway.tools.gateway"
 _INJECTED_PARAMS = ("_mcp_gateway_client",)
+_REMOTE_TOOL_ERROR = "remote_tool_error"
 
 
 def _source(sources: dict[str, dict]) -> dict[str, object]:
@@ -70,13 +74,32 @@ def _refused(
     }
 
 
+def _remote_failure(
+    error: str,
+    *,
+    tool_name: str,
+    arguments: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "source": "mcp_gateway",
+        "available": True,
+        "tool": tool_name,
+        "arguments": arguments,
+        "error": error,
+        "error_kind": _REMOTE_TOOL_ERROR,
+        "text": error,
+        "structured_content": None,
+        "content": [],
+    }
+
+
 def _normalize_result(result: dict[str, object]) -> dict[str, object]:
     tool_name = str(result.get("tool") or "")
     arguments = result.get("arguments")
     normalized_arguments = arguments if isinstance(arguments, dict) else {}
     if result.get("is_error"):
-        error = str(result.get("text") or "MCP gateway tool call failed.")
-        return _refused(error, tool_name=tool_name, arguments=normalized_arguments)
+        error = "MCP gateway tool reported an execution error."
+        return _remote_failure(error, tool_name=tool_name, arguments=normalized_arguments)
     return {
         "source": "mcp_gateway",
         "available": True,

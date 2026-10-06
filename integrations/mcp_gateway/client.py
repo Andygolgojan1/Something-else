@@ -40,7 +40,11 @@ class McpGatewayClient:
                 **self._session_options(),
             )
         except Exception as exc:
-            error = safe_request_error(exc, auth_token=self.config.auth_token)
+            error = safe_request_error(
+                exc,
+                auth_token=self.config.auth_token,
+                timeout_seconds=self.config.timeout_seconds,
+            )
         else:
             return [
                 {
@@ -93,5 +97,9 @@ class McpGatewayClient:
                 ),
             )
         except Exception as exc:
-            error = safe_request_error(exc, auth_token=self.config.auth_token)
+            error = safe_request_error(
+                exc,
+                auth_token=self.config.auth_token,
+                timeout_seconds=self.config.timeout_seconds,
+            )
         raise error

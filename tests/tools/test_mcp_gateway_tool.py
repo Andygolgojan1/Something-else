@@ -121,15 +121,15 @@ def test_read_tool_calls_client_in_read_only_mode() -> None:
     assert result["text"] == "ready"
 
 
-def test_external_tool_surfaces_mcp_is_error_as_refusal() -> None:
+def test_external_tool_sanitizes_mcp_execution_errors() -> None:
     client = MagicMock()
     client.call_tool.return_value = {
         "is_error": True,
         "tool": "restart_service",
         "arguments": {"service": "api"},
-        "text": "permission denied",
-        "structured_content": None,
-        "content": [],
+        "text": "permission denied: Bearer super-secret",
+        "structured_content": {"debug_token": "super-secret"},
+        "content": [{"type": "text", "text": "Bearer super-secret"}],
     }
 
     result = call_mcp_gateway_tool(
@@ -139,8 +139,11 @@ def test_external_tool_surfaces_mcp_is_error_as_refusal() -> None:
     )
 
     assert result["available"] is True
-    assert result["error"] == "permission denied"
-    assert result["error_kind"] == ERROR_KIND_REFUSED
+    assert result["error"] == "MCP gateway tool reported an execution error."
+    assert result["error_kind"] == "remote_tool_error"
+    assert result["structured_content"] is None
+    assert result["content"] == []
+    assert "super-secret" not in repr(result)
 
 
 def test_local_policy_refusal_stays_available() -> None:

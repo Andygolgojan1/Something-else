@@ -53,7 +53,12 @@ def sanitize_mcp_gateway_text(text: str, *, auth_token: str) -> str:
     return _BEARER_SECRET.sub("Bearer [REDACTED]", sanitized)
 
 
-def describe_mcp_gateway_error(exc: BaseException, *, auth_token: str) -> str:
+def describe_mcp_gateway_error(
+    exc: BaseException,
+    *,
+    auth_token: str,
+    timeout_seconds: float = MCP_GATEWAY_DEFAULT_TIMEOUT_SECONDS,
+) -> str:
     """Return a stable, secret-safe explanation for a gateway failure."""
     if isinstance(exc, McpGatewayError):
         return sanitize_mcp_gateway_text(str(exc), auth_token=auth_token)
@@ -86,10 +91,7 @@ def describe_mcp_gateway_error(exc: BaseException, *, auth_token: str) -> str:
     if any(isinstance(item, (httpx.ConnectError, httpx.ConnectTimeout)) for item in nested):
         return f"Could not reach the MCP gateway. Check {MCP_GATEWAY_URL_ENV} and network access."
     if any(isinstance(item, TimeoutError) for item in nested):
-        return (
-            "MCP gateway operation timed out after "
-            f"{MCP_GATEWAY_DEFAULT_TIMEOUT_SECONDS:.0f} seconds."
-        )
+        return f"MCP gateway operation timed out after {timeout_seconds:g} seconds."
     if any("server returned an error response" in str(item).lower() for item in nested):
         return (
             "The MCP gateway rejected the connection. Check "
@@ -98,6 +100,17 @@ def describe_mcp_gateway_error(exc: BaseException, *, auth_token: str) -> str:
     return f"MCP gateway request failed: {type(exc).__name__}."
 
 
-def safe_request_error(exc: BaseException, *, auth_token: str) -> McpGatewayRequestError:
+def safe_request_error(
+    exc: BaseException,
+    *,
+    auth_token: str,
+    timeout_seconds: float = MCP_GATEWAY_DEFAULT_TIMEOUT_SECONDS,
+) -> McpGatewayRequestError:
     """Create a detached safe exception suitable for logs and tool output."""
-    return McpGatewayRequestError(describe_mcp_gateway_error(exc, auth_token=auth_token))
+    return McpGatewayRequestError(
+        describe_mcp_gateway_error(
+            exc,
+            auth_token=auth_token,
+            timeout_seconds=timeout_seconds,
+        )
+    )
