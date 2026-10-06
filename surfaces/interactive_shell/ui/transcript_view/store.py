@@ -316,9 +316,10 @@ def _pending_rows(pending: str, width: int) -> tuple[Row, ...]:
     return _render_pending(pending, width) if pending else ()
 
 
-@functools.lru_cache(maxsize=8)
+# A paint needs at most two partial lines: the current one and the anchor's.
+# Keeping no more bounds memory while a long line without a newline grows.
+@functools.lru_cache(maxsize=2)
 def _render_pending(pending: str, width: int) -> tuple[Row, ...]:
-    # Repaints re-render the same partial line (and the anchor's) many times.
     return render_rows(ansi_renderable(pending), width)
 
 
