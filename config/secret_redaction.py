@@ -30,9 +30,18 @@ def _build_default_rules() -> tuple[RedactionRule, ...]:
         ("github_pat_classic", r"ghp_[A-Za-z0-9]{36}", "[REDACTED:github_pat]"),
         ("github_pat_fine", r"github_pat_[A-Za-z0-9_]{82}", "[REDACTED:github_pat]"),
         ("anthropic_key", r"sk-ant-[A-Za-z0-9_\-]{40,}", "[REDACTED:anthropic_key]"),
-        ("openai_key", r"\bsk-(?!ant-)[A-Za-z0-9_\-]{20,}", "[REDACTED:openai_key]"),
+        (
+            "openai_key",
+            r"(?<![A-Za-z0-9])sk-(?!ant-)[A-Za-z0-9_\-]{20,}",
+            "[REDACTED:openai_key]",
+        ),
         ("slack_token", r"xox[bopas]-[A-Za-z0-9-]{10,}", "[REDACTED:slack_token]"),
         ("stripe_key", r"sk_(?:live|test)_[A-Za-z0-9]{24,}", "[REDACTED:stripe_key]"),
+        (
+            "url_credentials",
+            r"(?i)(https?://)[^/\s@?#]+@",
+            r"\1[REDACTED]@",
+        ),
         (
             "bearer_value",
             r"(?i)^(\s*bearer\s+)[A-Za-z0-9._~+/-]+=*(\s*)$",
@@ -40,7 +49,7 @@ def _build_default_rules() -> tuple[RedactionRule, ...]:
         ),
         (
             "bearer_header",
-            r"(?i)\b((?:proxy-)?authorization\s*[:=]\s*bearer\s+)[A-Za-z0-9._~+/-]+=*",
+            r"(?i)\b((?:proxy-)?authorization\s*[:=]\s*(?:bearer|basic)\s+)[A-Za-z0-9._~+/-]+=*",
             r"\1[REDACTED]",
         ),
         (

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from urllib.parse import urlsplit
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from config.constants.mcp_gateway import MCP_GATEWAY_DEFAULT_TIMEOUT_SECONDS
 from config.strict_config import StrictConfigModel
@@ -24,6 +25,8 @@ def _tool_names(value: object) -> tuple[str, ...]:
 class McpGatewayConfig(StrictConfigModel):
     """Normalized connection and least-privilege policy for an MCP server."""
 
+    model_config = ConfigDict(hide_input_in_errors=True)
+
     url: str
     auth_token: str = ""
     allowed_tools: tuple[str, ...] = ()
@@ -35,6 +38,11 @@ class McpGatewayConfig(StrictConfigModel):
     @classmethod
     def _normalize_url(cls, value: object) -> str:
         normalized = str(value or "").strip().rstrip("/")
+        parsed = urlsplit(normalized)
+        if parsed.username is not None or parsed.password is not None:
+            raise ValueError(
+                "MCP gateway URL must not contain credentials; use auth_token instead."
+            )
         return validate_https_or_loopback_http_url(
             normalized,
             service_name="MCP gateway",
@@ -59,10 +67,7 @@ class McpGatewayConfig(StrictConfigModel):
         if self.allowed_tools:
             outside_allowlist = set(self.read_only_tools).difference(self.allowed_tools)
             if outside_allowlist:
-                names = ", ".join(sorted(outside_allowlist))
-                raise ValueError(
-                    "MCP gateway read-only tools must also appear in allowed_tools: " + names
-                )
+                raise ValueError("MCP gateway read-only tools must also appear in allowed_tools.")
         return self
 
     @property

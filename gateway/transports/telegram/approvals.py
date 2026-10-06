@@ -35,10 +35,12 @@ class TelegramApprovalPrompter:
         client: TelegramBotClient,
         broker: ApprovalBroker,
         chat_id: str,
+        requester_id: str = "",
     ) -> None:
         self._client = client
         self._broker = broker
         self._chat_id = chat_id
+        self._requester_id = requester_id
 
     def request(
         self,
@@ -52,21 +54,24 @@ class TelegramApprovalPrompter:
         if not preview.fields_visible:
             return (False, "")
         review_id = uuid.uuid4().hex
+        if preview.truncated and not self._requester_id:
+            return (False, "")
         for page in approval_review_pages(preview, review_id=review_id):
-            ok, _, review_message_id = self._client.send_message(self._chat_id, page)
+            ok, _, review_message_id = self._client.send_message(self._requester_id, page)
             if not ok or not review_message_id:
                 return (False, "")
         approval_id = self._broker.create(
             platform="telegram",
             chat_id=self._chat_id,
+            approver_id=self._requester_id if preview.truncated else "",
         )
         body = f"🔒 Approval needed — `{tool_name[:200]}`"
         if reason.strip():
             body += f"\n{reason.strip()[:500]}"
-        if preview.text:
+        if preview.text and not preview.truncated:
             body += f"\n```\n{preview.text}\n```"
         if preview.truncated:
-            body += f"\nReview complete argument pages {review_id} before approving."
+            body += f"\nComplete arguments sent privately; review {review_id} before approving."
         ok, error, message_id = self._client.send_message(
             self._chat_id,
             body,

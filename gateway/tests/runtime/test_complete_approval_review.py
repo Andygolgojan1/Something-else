@@ -29,7 +29,7 @@ def _arguments() -> dict:
     }
 
 
-@pytest.mark.parametrize("platform", ["slack", "telegram", "discord", "buzz"])
+@pytest.mark.parametrize("platform", ["slack", "telegram", "discord"])
 @pytest.mark.parametrize("delivery_fails", [False, True])
 def test_complete_pages_arrive_before_controls_or_no_approval(
     platform: str,
@@ -46,6 +46,7 @@ def test_complete_pages_arrive_before_controls_or_no_approval(
 
     def deliver(text: str, has_controls: bool) -> bool:
         if has_controls:
+            assert "DROP TABLE" not in text and "must-never-leak" not in text
             controls.append(text)
             review_id = posted[0].split("arguments ", 1)[1].split(" ", 1)[0]
             assert review_id in text
@@ -63,48 +64,47 @@ def test_complete_pages_arrive_before_controls_or_no_approval(
         ok = deliver(kwargs["text"], any(b["type"] == "actions" for b in kwargs["blocks"]))
         return "message-1" if ok else None
 
+    def slack_private(**kwargs):
+        assert kwargs["user"] == "operator"
+        return deliver(kwargs["text"], False)
+
     def telegram_post(_chat, text, **kwargs):
+        assert _chat == ("C1" if kwargs.get("reply_markup") else "operator")
         ok = deliver(text, bool(kwargs.get("reply_markup")))
         return (True, "", "message-1") if ok else (False, "failure", "")
 
     def discord_post(**kwargs):
+        assert kwargs["channel_id"] == ("C1" if kwargs.get("components") else "private")
         ok = deliver(kwargs["content"], bool(kwargs.get("components")))
         return "message-1" if ok else None
 
-    def buzz_post(**kwargs):
-        ok = deliver(kwargs["content"], "reply **approve**" in kwargs["content"])
-        return {"success": ok, "error": "", "event_id": "message-1"}
-
     if platform == "slack":
         client.post_message.side_effect = slack_post
+        client.post_ephemeral.side_effect = slack_private
         prompter = ThreadApprovalPrompter(
-            client=client, broker=broker, channel_id="C1", thread_ts="T1"
+            client=client, broker=broker, channel_id="C1", thread_ts="T1", requester_id="operator"
         )
     elif platform == "telegram":
         client.send_message.side_effect = telegram_post
-        prompter = TelegramApprovalPrompter(client=client, broker=broker, chat_id="C1")
+        prompter = TelegramApprovalPrompter(
+            client=client, broker=broker, chat_id="C1", requester_id="operator"
+        )
     elif platform == "discord":
+        monkeypatch.setattr(discord_approvals, "create_dm_channel", lambda **_kw: "private")
         monkeypatch.setattr(discord_approvals, "send_message", discord_post)
         monkeypatch.setattr(discord_approvals, "send_message_with_components", discord_post)
         monkeypatch.setattr(discord_approvals, "edit_message", lambda **_kw: True)
         prompter = discord_approvals.DiscordApprovalPrompter(
-            broker=broker, bot_token="bot", channel_id="C1"
+            broker=broker, bot_token="bot", channel_id="C1", requester_id="operator"
         )
-    else:
-        client.send_message.side_effect = buzz_post
-        client.edit_message.return_value = {"success": True, "error": ""}
-        prompter = BuzzApprovalPrompter(
-            broker=broker,
-            client=client,
-            channel_id="C1",
-            requester_pubkey="operator",
-            pending_approvals=PendingApprovals(),
-        )
+    original_wait = broker.wait
 
     def wait(_approval_id, *, timeout):
         assert timeout > 0
         assert controls and posted
-        return (True, "operator")
+        assert not broker.resolve(_approval_id, approved=True, decided_by="other-member")
+        assert broker.resolve(_approval_id, approved=True, decided_by="operator")
+        return original_wait(_approval_id, timeout=0)
 
     monkeypatch.setattr(broker, "wait", wait)
     result = prompter.request(
@@ -131,3 +131,21 @@ def test_hosted_approval_question_contains_complete_redacted_arguments() -> None
     assert "DROP TABLE production;" in session.pending_user_choice.note
     assert "must-never-leak" not in session.pending_user_choice.note
     assert len(session.pending_user_choice.note) > 10000
+
+
+def test_buzz_never_posts_complete_evidence_without_private_delivery() -> None:
+    client = MagicMock()
+    broker = ApprovalBroker()
+    prompter = BuzzApprovalPrompter(
+        broker=broker,
+        client=client,
+        channel_id="C1",
+        requester_pubkey="operator",
+        pending_approvals=PendingApprovals(),
+    )
+    assert prompter.request(
+        tool_name="call_mcp_gateway_tool", reason="", arguments=_arguments(), expiry_seconds=30
+    ) == (False, "")
+    posted = client.send_message.call_args.kwargs["content"]
+    assert "private review" in posted and "DROP TABLE" not in posted
+    assert "must-never-leak" not in posted

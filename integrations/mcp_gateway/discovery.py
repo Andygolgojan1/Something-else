@@ -6,6 +6,8 @@ import json
 from typing import Any
 
 from core.tool_framework.utils import build_mcp_tool_listing
+from infrastructure.observability.trace.redaction import redact_sensitive
+from infrastructure.safety.secret_redaction import redact_text
 from integrations.mcp_gateway.client import McpGatewayToolDescriptor
 from integrations.mcp_gateway.redaction import public_tool_name, scrub_configured_token
 
@@ -36,11 +38,13 @@ def gateway_tool_listing(
             continue
         item: dict[str, object] = {
             "name": name,
-            "description": scrub_configured_token(descriptor["description"], auth_token),
+            "description": redact_text(
+                scrub_configured_token(descriptor["description"], auth_token)
+            ),
         }
         if include_schema:
             schema = descriptor["input_schema"]
-            safe_schema = scrub_configured_token(schema, auth_token)
+            safe_schema = redact_sensitive(scrub_configured_token(schema, auth_token))
             if safe_schema != schema:
                 omitted[name] = (
                     "Schema omitted because credential redaction would alter its contract."
@@ -58,7 +62,9 @@ def gateway_tool_listing(
     )
     # Echoing a user-supplied filter must not bypass the output budget.
     if name_filter:
-        listing["name_filter"] = name_filter[:_MAX_NAME_CHARS]
+        listing["name_filter"] = redact_text(
+            scrub_configured_token(name_filter[:_MAX_NAME_CHARS], auth_token)
+        )
     read_only_names = {public_tool_name(name, auth_token) for name in read_only_tools}
     tools = listing.get("tools")
     schema_total = 0

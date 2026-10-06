@@ -311,3 +311,17 @@ def test_alias_collision_cannot_select_another_advertised_tool() -> None:
     ):
         McpGatewayClient(config).call_tool(alias, read_only=True)
     call.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://user:password@example.test/mcp",
+        "https://user@example.test/mcp",
+        "https://@example.test/mcp",
+    ],
+)
+def test_gateway_rejects_url_userinfo_before_any_connection(url: str) -> None:
+    with pytest.raises(ValueError, match="must not contain credentials") as error:
+        McpGatewayConfig(url=url)
+    assert url not in str(error.value)

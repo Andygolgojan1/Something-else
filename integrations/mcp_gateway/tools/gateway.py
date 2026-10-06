@@ -15,6 +15,7 @@ from integrations.mcp_gateway.errors import (
     McpGatewayRefused,
     McpGatewayRequestError,
 )
+from integrations.mcp_gateway.results import safe_tool_result
 
 _COMPONENT = "integrations.mcp_gateway.tools.gateway"
 _INJECTED_PARAMS = ("_mcp_gateway_client",)
@@ -121,6 +122,24 @@ def _normalize_result(result: dict[str, object]) -> dict[str, object]:
 
 
 def _call(
+    tool_name: str,
+    arguments: dict[str, object] | None,
+    *,
+    client: McpGatewayClient | None,
+    read_only: bool,
+    registered_tool_name: str,
+) -> dict[str, object]:
+    payload = _perform_call(
+        tool_name,
+        arguments,
+        client=client,
+        read_only=read_only,
+        registered_tool_name=registered_tool_name,
+    )
+    return safe_tool_result(payload, auth_token=client.config.auth_token if client else "")
+
+
+def _perform_call(
     tool_name: str,
     arguments: dict[str, object] | None,
     *,

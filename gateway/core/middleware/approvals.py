@@ -47,6 +47,7 @@ class _PendingApproval:
     decided_by: str = ""
     platform: str = ""
     chat_id: str = ""
+    approver_id: str = ""
 
 
 class ApprovalBroker:
@@ -62,12 +63,14 @@ class ApprovalBroker:
         *,
         platform: str | None = None,
         chat_id: str | None = None,
+        approver_id: str = "",
     ) -> str:
         approval_id = uuid.uuid4().hex
         with self._lock:
             self._pending[approval_id] = _PendingApproval(
                 platform=platform or "",
                 chat_id=chat_id or "",
+                approver_id=approver_id,
             )
         audit_security_action(
             action="approval.create",
@@ -84,6 +87,12 @@ class ApprovalBroker:
         with self._lock:
             pending = self._pending.get(approval_id)
             if pending is None or pending.event.is_set():
+                return False
+            if (
+                pending.approver_id
+                and decided_by != pending.approver_id
+                and (approved or decided_by)
+            ):
                 return False
             pending.approved = approved
             pending.decided_by = decided_by

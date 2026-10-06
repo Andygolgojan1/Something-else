@@ -27,6 +27,16 @@ Blocks = Sequence[dict[str, Any]]
 class SlackMessagingClient(Protocol):
     """The messaging surface the Slack turn output needs."""
 
+    def post_ephemeral(
+        self,
+        *,
+        channel: str,
+        user: str,
+        text: str,
+        blocks: Blocks | None = None,
+    ) -> bool:
+        """Deliver private evidence to one user; never fall back to a channel post."""
+
     def post_message(
         self,
         *,
@@ -87,6 +97,26 @@ class SlackWebApiClient:
     def __init__(self, web_client: WebClient) -> None:
         self._web_client = web_client
         self._streaming_unsupported = False
+
+    def post_ephemeral(
+        self,
+        *,
+        channel: str,
+        user: str,
+        text: str,
+        blocks: Blocks | None = None,
+    ) -> bool:
+        try:
+            response = self._web_client.chat_postEphemeral(
+                channel=channel,
+                user=user,
+                text=text,
+                blocks=list(blocks) if blocks is not None else None,
+            )
+        except SlackApiError:
+            logger.warning("[slack-gateway] private approval evidence delivery failed")
+            return False
+        return bool(response.get("ok") and response.get("message_ts"))
 
     def post_message(
         self,

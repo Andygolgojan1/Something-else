@@ -94,6 +94,7 @@ def test_extract_params_injects_client_without_exposing_raw_secret() -> None:
 
 def test_list_labels_tools_by_access_policy() -> None:
     client = MagicMock()
+    client.config.auth_token = ""
     client.config.read_only_tools = ("status",)
     client.config.auth_token = ""
     client.list_tools.return_value = [
@@ -116,6 +117,7 @@ def test_list_labels_tools_by_access_policy() -> None:
 
 def test_read_tool_calls_client_in_read_only_mode() -> None:
     client = MagicMock()
+    client.config.auth_token = ""
     client.call_tool.return_value = {
         "is_error": False,
         "tool": "status",
@@ -134,6 +136,7 @@ def test_read_tool_calls_client_in_read_only_mode() -> None:
 
 def test_external_tool_sanitizes_mcp_execution_errors() -> None:
     client = MagicMock()
+    client.config.auth_token = ""
     client.call_tool.return_value = {
         "is_error": True,
         "tool": "restart_service",
@@ -159,6 +162,7 @@ def test_external_tool_sanitizes_mcp_execution_errors() -> None:
 
 def test_local_policy_refusal_stays_available() -> None:
     client = MagicMock()
+    client.config.auth_token = ""
     client.call_tool.side_effect = McpGatewayRefused("not allowed")
 
     result = call_mcp_gateway_tool("restart_service", _mcp_gateway_client=client)
@@ -215,6 +219,7 @@ def test_discovery_omits_oversized_schemas_and_preserves_other_contracts() -> No
     import json
 
     client = MagicMock()
+    client.config.auth_token = ""
     client.config.auth_token = "secret-token"
     client.config.read_only_tools = ()
     schema = {"type": "object", "properties": {"query": {"type": "string"}}}
@@ -236,6 +241,7 @@ def test_discovery_omits_oversized_schemas_and_preserves_other_contracts() -> No
 
 def test_discovery_withholds_credentials_in_required_fields_without_rewriting_them() -> None:
     client = MagicMock()
+    client.config.auth_token = ""
     client.config.auth_token = "status"
     client.config.read_only_tools = ()
     schema = {
@@ -250,3 +256,75 @@ def test_discovery_withholds_credentials_in_required_fields_without_rewriting_th
     assert "redaction" in item["schema_omitted"]
     assert "status" not in repr(result)
     assert schema["required"] == ["status_code"]
+
+
+def test_all_successful_result_fields_redact_credentials_without_mutating_input() -> None:
+    import json
+
+    client = MagicMock()
+    client.config.auth_token = "configured-token"
+    key = "sk-" + "a" * 32
+    aws_key = "AKIA" + "A" * 16
+    raw = {
+        "is_error": False,
+        "tool": "read",
+        "arguments": {"password": "opaque-password"},
+        "text": "prefix_" + key,
+        "structured_content": {"api_key": "opaque-other-key", "value": aws_key},
+        "content": [{"text": "configured-token", "authorization": "opaque-header"}],
+    }
+    client.call_tool.return_value = raw
+    result = call_mcp_gateway_read_tool("read", _mcp_gateway_client=client)
+    shown = json.dumps(result)
+    for credential in (
+        key,
+        aws_key,
+        "opaque-password",
+        "opaque-other-key",
+        "configured-token",
+        "opaque-header",
+    ):
+        assert credential not in shown
+    assert raw["text"] == "prefix_" + key
+    assert raw["structured_content"]["api_key"] == "opaque-other-key"
+
+
+def test_large_successful_result_is_explicitly_bounded_after_redaction() -> None:
+    import json
+
+    client = MagicMock()
+    client.config.auth_token = "configured-token"
+    client.call_tool.return_value = {
+        "is_error": False,
+        "tool": "read",
+        "text": "ready " + "x" * 2000000,
+        "structured_content": {"items": ["y" * 10000] * 100},
+        "content": [{"text": "z" * 1000000}],
+    }
+    result = call_mcp_gateway_read_tool("read", _mcp_gateway_client=client)
+    assert len(json.dumps(result)) < 60000
+    assert result["truncated"] is True
+    assert result["original_serialized_chars"] > 2000000
+    assert result["structured_content"] is None and result["content"] == []
+    assert result["text"].startswith("ready")
+
+
+def test_discovery_never_echoes_credentials_from_filters_or_schema_keys() -> None:
+    client = MagicMock()
+    client.config.auth_token = "opaque-configured-token"
+    client.config.read_only_tools = ()
+    key = "sk-" + "a" * 32
+    client.list_tools.return_value = [
+        {
+            "name": "read",
+            "description": "read data",
+            "input_schema": {"properties": {key: {"type": "string"}}},
+        }
+    ]
+    listing = list_mcp_gateway_tools(include_schema=True, _mcp_gateway_client=client)
+    assert "input_schema" not in listing["tools"][0]
+    assert key not in repr(listing)
+    filtered = list_mcp_gateway_tools(
+        name_filter=client.config.auth_token, _mcp_gateway_client=client
+    )
+    assert client.config.auth_token not in repr(filtered)

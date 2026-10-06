@@ -64,12 +64,18 @@ def redact_sensitive(value: Any) -> Any:
         redacted: dict[str, Any] = {}
         for key, item in value.items():
             key_str = str(key)
+            safe_key = redact_text(key_str)
+            unique_key = safe_key
+            duplicate = 1
+            while unique_key in redacted:
+                duplicate += 1
+                unique_key = f"{safe_key} #{duplicate}"
             if _SENSITIVE_KEY_RE.search(key_str):
-                redacted[key_str] = _REDACTED_PLACEHOLDER
+                redacted[unique_key] = _REDACTED_PLACEHOLDER
             elif _RUNTIME_KEY_RE.search(key_str):
-                redacted[key_str] = _RUNTIME_OBJECT_PLACEHOLDER
+                redacted[unique_key] = _RUNTIME_OBJECT_PLACEHOLDER
             else:
-                redacted[key_str] = redact_sensitive(item)
+                redacted[unique_key] = redact_sensitive(item)
         return redacted
     if isinstance(value, list):
         return [redact_sensitive(item) for item in value]

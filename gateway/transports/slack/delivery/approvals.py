@@ -38,11 +38,13 @@ class ThreadApprovalPrompter:
         broker: ApprovalBroker,
         channel_id: str,
         thread_ts: str,
+        requester_id: str = "",
     ) -> None:
         self._client = client
         self._broker = broker
         self._channel_id = channel_id
         self._thread_ts = thread_ts
+        self._requester_id = requester_id
 
     def request(
         self,
@@ -57,27 +59,36 @@ class ThreadApprovalPrompter:
         if not preview.fields_visible:
             return (False, "")
         review_id = uuid.uuid4().hex
+        if preview.truncated and not self._requester_id:
+            return (False, "")
         for page in approval_review_pages(preview, review_id=review_id):
-            if (
-                self._client.post_message(
-                    channel=self._channel_id,
-                    text=page,
-                    thread_ts=self._thread_ts,
-                    blocks=[{"type": "section", "text": {"type": "plain_text", "text": page}}],
-                )
-                is None
+            if not self._client.post_ephemeral(
+                channel=self._channel_id,
+                user=self._requester_id,
+                text=page,
+                blocks=[{"type": "section", "text": {"type": "plain_text", "text": page}}],
             ):
                 return (False, "")
         approval_id = self._broker.create(
             platform="slack",
             chat_id=self._channel_id,
+            approver_id=self._requester_id if preview.truncated else "",
         )
         prompt_text = _prompt_text(tool_name, reason)
+        if preview.truncated:
+            prompt_text += (
+                f"\nComplete arguments sent privately; review {review_id} before approving."
+            )
         message_ts = self._client.post_message(
             channel=self._channel_id,
             text=f"Approval needed: {tool_name} — review {review_id} and approve or deny in Slack.",
             thread_ts=self._thread_ts,
-            blocks=_prompt_blocks(approval_id, prompt_text, arguments, review_id=review_id),
+            blocks=_prompt_blocks(
+                approval_id,
+                prompt_text,
+                {} if preview.truncated else arguments,
+                review_id=review_id,
+            ),
         )
         if message_ts is None:
             # No buttons on screen means nobody can approve: fail closed.
