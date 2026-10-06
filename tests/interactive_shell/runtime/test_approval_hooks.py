@@ -18,12 +18,13 @@ from surfaces.interactive_shell.session import Session
 from tools.registry import clear_tool_registry_cache, get_registered_tool_map
 
 
-def _request(tool_name: str) -> ToolExecutionRequest:
+def _request(tool_name: str, arguments: dict[str, object] | None = None) -> ToolExecutionRequest:
     clear_tool_registry_cache()
+    resolved_arguments = arguments or {}
     return ToolExecutionRequest(
-        tool_call=ToolCall(id="call-1", name=tool_name, input={}),
+        tool_call=ToolCall(id="call-1", name=tool_name, input=resolved_arguments),
         tool=get_registered_tool_map()[tool_name],
-        arguments={},
+        arguments=resolved_arguments,
         source="test",
         resolved_integrations={},
     )
@@ -88,7 +89,7 @@ def test_other_tools_are_not_asked_about() -> None:
 def test_requires_approval_metadata_prompts_at_default_auto_level() -> None:
     # Arrange
     session = Session()
-    console, _printed = _console()
+    console, printed = _console()
     asked: list[str] = []
 
     def confirm(prompt: str) -> str:
@@ -101,12 +102,23 @@ def test_requires_approval_metadata_prompts_at_default_auto_level() -> None:
     assert hooks.before_tool_call is not None
 
     # Act
-    decision = hooks.before_tool_call(_request("call_mcp_gateway_tool"))
+    decision = hooks.before_tool_call(
+        _request(
+            "call_mcp_gateway_tool",
+            {
+                "tool_name": "restart_service",
+                "arguments": {"service": "prod", "api_token": "super-secret"},
+            },
+        )
+    )
 
     # Assert
     assert session.terminal.auto_level == DEFAULT_AUTO_LEVEL == AutoLevel.HIGH
     assert decision == BeforeToolCallResult(approved=True)
     assert len(asked) == 1
+    assert "restart_service" in printed.getvalue()
+    assert '"service": "prod"' in printed.getvalue()
+    assert "super-secret" not in printed.getvalue()
 
 
 def test_generated_code_asks_at_every_auto_level() -> None:

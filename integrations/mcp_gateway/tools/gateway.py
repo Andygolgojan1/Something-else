@@ -22,7 +22,15 @@ _REMOTE_TOOL_ERROR = "remote_tool_error"
 
 def _source(sources: dict[str, dict]) -> dict[str, object]:
     raw = sources.get("mcp_gateway", {})
-    return dict(raw) if isinstance(raw, dict) else {}
+    if not isinstance(raw, dict):
+        return {}
+    nested = raw.get("config")
+    if not isinstance(nested, dict):
+        return dict(raw)
+    config = dict(nested)
+    if "connection_verified" in raw:
+        config["connection_verified"] = bool(raw["connection_verified"])
+    return config
 
 
 def _available(sources: dict[str, dict]) -> bool:

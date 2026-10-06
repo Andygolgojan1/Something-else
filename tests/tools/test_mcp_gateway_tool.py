@@ -34,10 +34,13 @@ def _sources(*, read_only_tools: tuple[str, ...] = ("status",)) -> dict[str, obj
         {
             "mcp_gateway": {
                 "connection_verified": True,
-                "url": "http://127.0.0.1:8765/mcp",
-                "auth_token": "secret",
-                "allowed_tools": ("status", "restart_service"),
-                "read_only_tools": read_only_tools,
+                "source": "local env",
+                "config": {
+                    "url": "http://127.0.0.1:8765/mcp",
+                    "auth_token": "secret",
+                    "allowed_tools": ("status", "restart_service"),
+                    "read_only_tools": read_only_tools,
+                },
             }
         }
     )

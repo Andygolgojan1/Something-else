@@ -10,6 +10,8 @@ from rich.console import Console
 from config.constants.repl_autonomy import ASK_AT_EVERY_AUTO_LEVEL_TOOL_NAMES
 from config.constants.tooling import ToolBlockedBy
 from core.tool import BeforeToolCallResult, ToolExecutionHooks, ToolExecutionRequest
+from infrastructure.observability.trace.redaction import format_json_preview
+from infrastructure.safety.terminal_output import strip_terminal_controls
 from surfaces.interactive_shell.session import Session
 from surfaces.interactive_shell.ui.execution_confirm import execution_allowed
 from tools.interactive_shell.shared import ask_tool
@@ -79,6 +81,9 @@ class _ShellApproval:
         tool_name = request.tool_call.name
         reason = str(getattr(tool, "approval_reason", "") or _DEFAULT_REASON)
         shown_name = str(getattr(tool, "display_name", "") or tool_name)
+        if request.arguments:
+            preview = format_json_preview(request.arguments, max_chars=240)
+            shown_name = f"{shown_name} · {strip_terminal_controls(' '.join(preview.split()))}"
         verdict = ask_tool(tool_name, reason)
         approved = execution_allowed(
             verdict,
