@@ -12,7 +12,12 @@ import httpx
 import mcp_types as types
 from typing_extensions import TypedDict
 
-from config.constants.mcp import MCP_NO_COLOR_ENV, MCP_TERMINAL_DUMB_VALUE, MCP_TERMINAL_ENV
+from config.constants.mcp import (
+    MCP_NO_COLOR_ENV,
+    MCP_TERMINAL_DUMB_VALUE,
+    MCP_TERMINAL_ENV,
+    MCP_TOOL_LIST_MAX_PAGES,
+)
 from integrations.mcp_streamable_http_compat import streamable_http_client
 from integrations.mcp_transport import McpTransportMode
 
@@ -212,7 +217,22 @@ async def _list_tools_async(
     **session_options: Unpack[McpSessionOptions],
 ) -> list[types.Tool]:
     async with open_mcp_session(config, **session_options) as session:
-        return list((await session.list_tools()).tools)
+        tools: list[types.Tool] = []
+        cursor: str | None = None
+        seen_cursors: set[str] = set()
+        for _ in range(MCP_TOOL_LIST_MAX_PAGES):
+            params = types.PaginatedRequestParams(cursor=cursor) if cursor is not None else None
+            page = await session.list_tools(params=params)
+            tools.extend(page.tools)
+            cursor = page.next_cursor
+            if cursor is None:
+                return tools
+            if cursor in seen_cursors:
+                raise RuntimeError("MCP server returned a repeated pagination cursor")
+            seen_cursors.add(cursor)
+        raise RuntimeError(
+            f"MCP tool listing exceeded the {MCP_TOOL_LIST_MAX_PAGES}-page safety limit"
+        )
 
 
 def list_mcp_tools(

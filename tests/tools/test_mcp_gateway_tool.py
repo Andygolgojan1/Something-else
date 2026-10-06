@@ -1,0 +1,154 @@
+"""Tests for generic MCP gateway function tools."""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock
+
+from core.tool import ERROR_KIND_REFUSED, SideEffectLevel
+from integrations.mcp_gateway import McpGatewayRefused
+from integrations.mcp_gateway.tools.gateway import (
+    call_mcp_gateway_read_tool,
+    call_mcp_gateway_tool,
+    list_mcp_gateway_tools,
+)
+from tests.tools.conftest import BaseToolContract, mock_agent_state
+
+
+class TestMcpGatewayListContract(BaseToolContract):
+    def get_tool_under_test(self):
+        return list_mcp_gateway_tools.__opensre_registered_tool__
+
+
+class TestMcpGatewayReadContract(BaseToolContract):
+    def get_tool_under_test(self):
+        return call_mcp_gateway_read_tool.__opensre_registered_tool__
+
+
+class TestMcpGatewayCallContract(BaseToolContract):
+    def get_tool_under_test(self):
+        return call_mcp_gateway_tool.__opensre_registered_tool__
+
+
+def _sources(*, read_only_tools: tuple[str, ...] = ("status",)) -> dict[str, object]:
+    return mock_agent_state(
+        {
+            "mcp_gateway": {
+                "connection_verified": True,
+                "url": "http://127.0.0.1:8765/mcp",
+                "auth_token": "secret",
+                "allowed_tools": ("status", "restart_service"),
+                "read_only_tools": read_only_tools,
+            }
+        }
+    )
+
+
+def test_tool_contracts_encode_read_and_mutation_boundaries() -> None:
+    listing = list_mcp_gateway_tools.__opensre_registered_tool__
+    read = call_mcp_gateway_read_tool.__opensre_registered_tool__
+    external = call_mcp_gateway_tool.__opensre_registered_tool__
+
+    assert listing.side_effect_level is SideEffectLevel.READ_ONLY
+    assert read.side_effect_level is SideEffectLevel.READ_ONLY
+    assert read.requires_approval is False
+    assert external.side_effect_level is SideEffectLevel.EXTERNAL
+    assert external.requires_approval is True
+
+
+def test_public_schemas_do_not_expose_connection_or_policy_values() -> None:
+    for tool_fn in (
+        list_mcp_gateway_tools,
+        call_mcp_gateway_read_tool,
+        call_mcp_gateway_tool,
+    ):
+        registered = tool_fn.__opensre_registered_tool__
+        assert registered.injected_params == ("_mcp_gateway_client",)
+        assert "_mcp_gateway_client" not in registered.public_input_schema.get("properties", {})
+
+
+def test_read_tool_only_available_with_certified_read_only_names() -> None:
+    registered = call_mcp_gateway_read_tool.__opensre_registered_tool__
+
+    assert registered.is_available(_sources()) is True
+    assert registered.is_available(_sources(read_only_tools=())) is False
+
+
+def test_extract_params_injects_client_without_exposing_raw_secret() -> None:
+    registered = call_mcp_gateway_tool.__opensre_registered_tool__
+
+    params = registered.extract_params(_sources())
+
+    assert set(params) == {"_mcp_gateway_client"}
+    assert params["_mcp_gateway_client"].config.auth_token == "secret"
+
+
+def test_list_labels_tools_by_access_policy() -> None:
+    client = MagicMock()
+    client.config.read_only_tools = ("status",)
+    client.list_tools.return_value = [
+        {"name": "status", "description": "Status", "input_schema": {}},
+        {"name": "restart_service", "description": "Restart", "input_schema": {}},
+    ]
+
+    result = list_mcp_gateway_tools(_mcp_gateway_client=client)
+
+    assert result["available"] is True
+    assert result["tools"] == [
+        {"name": "status", "description": "Status", "access": "read_only"},
+        {
+            "name": "restart_service",
+            "description": "Restart",
+            "access": "approval_required",
+        },
+    ]
+
+
+def test_read_tool_calls_client_in_read_only_mode() -> None:
+    client = MagicMock()
+    client.call_tool.return_value = {
+        "is_error": False,
+        "tool": "status",
+        "arguments": {},
+        "text": "ready",
+        "structured_content": {"ok": True},
+        "content": [],
+    }
+
+    result = call_mcp_gateway_read_tool("status", _mcp_gateway_client=client)
+
+    client.call_tool.assert_called_once_with("status", {}, read_only=True)
+    assert result["available"] is True
+    assert result["text"] == "ready"
+
+
+def test_external_tool_surfaces_mcp_is_error_as_refusal() -> None:
+    client = MagicMock()
+    client.call_tool.return_value = {
+        "is_error": True,
+        "tool": "restart_service",
+        "arguments": {"service": "api"},
+        "text": "permission denied",
+        "structured_content": None,
+        "content": [],
+    }
+
+    result = call_mcp_gateway_tool(
+        "restart_service",
+        {"service": "api"},
+        _mcp_gateway_client=client,
+    )
+
+    assert result["available"] is True
+    assert result["error"] == "permission denied"
+    assert result["error_kind"] == ERROR_KIND_REFUSED
+
+
+def test_local_policy_refusal_stays_available() -> None:
+    client = MagicMock()
+    client.call_tool.side_effect = McpGatewayRefused("not allowed")
+
+    result = call_mcp_gateway_tool("restart_service", _mcp_gateway_client=client)
+
+    assert result["available"] is True
+    assert result["error"] == "not allowed"
+    assert result["error_kind"] == ERROR_KIND_REFUSED

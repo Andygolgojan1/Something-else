@@ -336,6 +336,11 @@ EXPORTS: dict[str, str] = {
     "MCP_NO_COLOR_ENV": "mcp",
     "MCP_TERMINAL_ENV": "mcp",
     "MCP_TERMINAL_DUMB_VALUE": "mcp",
+    "MCP_GATEWAY_ALLOWED_TOOLS_ENV": "mcp_gateway",
+    "MCP_GATEWAY_AUTH_TOKEN_ENV": "mcp_gateway",
+    "MCP_GATEWAY_DEFAULT_TIMEOUT_SECONDS": "mcp_gateway",
+    "MCP_GATEWAY_READ_ONLY_TOOLS_ENV": "mcp_gateway",
+    "MCP_GATEWAY_URL_ENV": "mcp_gateway",
     # conversation history
     "OPENSRE_HISTORY_TOKEN_BUDGET_ENV": "conversation_history",
     "OPENSRE_HISTORY_TOOL_RESULT_CHARS_ENV": "conversation_history",

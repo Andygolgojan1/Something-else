@@ -38,10 +38,14 @@ class _Config:
 @dataclass(frozen=True)
 class _ListToolsResult:
     tools: list[types.Tool]
+    next_cursor: str | None = None
 
 
 class _Session:
-    async def list_tools(self) -> _ListToolsResult:
+    async def list_tools(
+        self, *, params: types.PaginatedRequestParams | None = None
+    ) -> _ListToolsResult:
+        assert params is None
         return _ListToolsResult(tools=[types.Tool(name="status", input_schema={})])
 
     async def call_tool(self, name: str, arguments: dict[str, object]) -> types.CallToolResult:
@@ -99,6 +103,53 @@ def test_shared_client_normalizes_list_and_tool_results(monkeypatch: pytest.Monk
         "tool": "status",
         "arguments": {"verbose": True},
     }
+
+
+def test_shared_client_collects_all_tool_pages(monkeypatch: pytest.MonkeyPatch) -> None:
+    requested_cursors: list[str | None] = []
+
+    class PaginatedSession(_Session):
+        async def list_tools(
+            self, *, params: types.PaginatedRequestParams | None = None
+        ) -> _ListToolsResult:
+            cursor = params.cursor if params is not None else None
+            requested_cursors.append(cursor)
+            if cursor is None:
+                return _ListToolsResult(
+                    tools=[types.Tool(name="first", input_schema={})],
+                    next_cursor="page-2",
+                )
+            assert cursor == "page-2"
+            return _ListToolsResult(tools=[types.Tool(name="second", input_schema={})])
+
+    @asynccontextmanager
+    async def open_session(*_args: object, **_kwargs: object) -> AsyncIterator[PaginatedSession]:
+        yield PaginatedSession()
+
+    monkeypatch.setattr(mcp_client, "open_mcp_session", open_session)
+
+    tools = mcp_client.list_mcp_tools(_Config(), **_session_options())
+
+    assert [tool.name for tool in tools] == ["first", "second"]
+    assert requested_cursors == [None, "page-2"]
+
+
+def test_shared_client_rejects_repeated_tool_cursor(monkeypatch: pytest.MonkeyPatch) -> None:
+    class RepeatingSession(_Session):
+        async def list_tools(
+            self, *, params: types.PaginatedRequestParams | None = None
+        ) -> _ListToolsResult:
+            del params
+            return _ListToolsResult(tools=[], next_cursor="same-cursor")
+
+    @asynccontextmanager
+    async def open_session(*_args: object, **_kwargs: object) -> AsyncIterator[RepeatingSession]:
+        yield RepeatingSession()
+
+    monkeypatch.setattr(mcp_client, "open_mcp_session", open_session)
+
+    with pytest.raises(RuntimeError, match="repeated pagination cursor"):
+        mcp_client.list_mcp_tools(_Config(), **_session_options())
 
 
 def test_shared_client_keeps_vendor_timeout_copy_for_chained_timeout() -> None:
