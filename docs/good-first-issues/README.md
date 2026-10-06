@@ -25,14 +25,11 @@ Browse issues tagged with the `good first issue` label:
 3. **Read the setup guide** — get your environment running first: [SETUP.md](../../SETUP.md)
 4. **Fork and branch** — `git checkout -b issue/123-short-description`
 5. **Make your changes** — keep the scope tight; one issue, one PR
-6. **Run local checks** before opening a PR:
-```bash
-   make lint && make format-check && make typecheck && make test-cov
-```
+6. **Validate the change** — run the closest regression tests or `make test-scope`, following [CI.md](../../CI.md). For documentation-only changes, review the diff and links. PR CI runs the complete automated checks.
 7. **Open a pull request** — link the issue with `Fixes #123` in your PR description
 
 Full contribution flow is in [CONTRIBUTING.md](../../CONTRIBUTING.md).
-After you open a PR, follow the [PR review flow](../pr-review-flow.mdx)
+After you open a PR, follow the [PR review flow](../guides/pr-review-flow.mdx)
 (Greptile · human review · CI).
 
 ## Ask for help

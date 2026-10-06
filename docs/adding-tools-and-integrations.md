@@ -193,4 +193,4 @@ Everything above is complete, **and**:
 
 Before opening or approving the PR, confirm the items most often missed are handled **explicitly**: tool placement (§1), live-payload robustness (§1), onboarding/setup/docs parity (§2 and §4), pagination/truncation/partial-response behavior (§3), and tests that cover realistic payloads and usefulness to the agent — not only happy-path mocks (§4).
 
-Follow [CI.md](https://github.com/Tracer-Cloud/opensre/blob/main/CI.md) for the mandatory pre-push commands.
+Follow [CI.md](https://github.com/Tracer-Cloud/opensre/blob/main/CI.md) for focused local validation and required PR CI/review follow-through.

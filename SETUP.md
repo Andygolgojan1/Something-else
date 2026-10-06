@@ -57,15 +57,12 @@ Without Make (equivalent to `make install`):
 ```bash
 uv sync --frozen --extra dev
 uv run python -m infrastructure.analytics.install
+uv run python .github/ci/install_hooks.py
 ```
 
-4. Verify:
-
-```bash
-make lint && make format-check && make typecheck && make test-cov
-```
-
-`format-check` is what CI enforces for formatting; include it before opening a PR.
+4. Confirm the checkout runs with `uv run opensre --version`, then follow
+   [CI.md](CI.md) for focused local validation. Repository-wide checks run in
+   PR CI; setup does not require a full local coverage run.
 
 ---
 
@@ -185,9 +182,12 @@ Boot logs non-fatal warnings when a `PATH` tool is missing or a sandbox probe fa
 ## Verify your setup
 
 ```bash
-make lint && make format-check && make typecheck && make test-cov
+uv run opensre --version
 ```
 
-If those pass, you are ready to develop. Contribution flow: **[CONTRIBUTING.md](CONTRIBUTING.md)**. Deeper contributor topics (benchmark, deployment, telemetry detail): **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)**.
+If the command succeeds, the CLI is installed and runnable. For validating
+changes, follow **[CI.md](CI.md)**. Contribution flow:
+**[CONTRIBUTING.md](CONTRIBUTING.md)**. Deeper contributor topics (benchmark,
+deployment, telemetry detail): **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)**.
 
 ---
