@@ -319,8 +319,13 @@ async def test_full_screen_composer_fits_a_three_row_window() -> None:
         prompt = build_prompt_session(transcript=TranscriptControl(TranscriptStore()))
         task = asyncio.create_task(prompt.prompt_async("", bottom_toolbar=""))
         pipe_input.send_text("draft")
-        await asyncio.sleep(0.3)
-        painted = terminal.getvalue()
+        # Wait for a paint that settles the question either way, not a fixed sleep.
+        deadline = asyncio.get_running_loop().time() + 5.0
+        painted = ""
+        while "draft" not in painted and "Window too small" not in painted:
+            assert asyncio.get_running_loop().time() < deadline, "the prompt never painted"
+            await asyncio.sleep(0.02)
+            painted = terminal.getvalue()
         pipe_input.send_text("\r")
         await asyncio.wait_for(task, timeout=5.0)
 
