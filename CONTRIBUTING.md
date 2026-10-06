@@ -42,7 +42,7 @@ See **[SETUP.md](SETUP.md)** for detailed setup instructions including Windows-s
 
 1. Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and clone the repository (see [SETUP.md](SETUP.md) for Windows and alternatives)
 2. Install dependencies: `make install`
-3. Run checks: `make lint && make format-check && make typecheck && make test-cov`
+3. Run the closest regression tests or `make test-scope`; follow [CI.md](CI.md) for local validation and PR CI.
     - When invoking the CLI from your checkout, prefer **`uv run opensre …`** (see `SETUP.md` troubleshooting if another `opensre` shadows `.venv`).
 4. Build release artifacts when needed: `make build`
 
@@ -119,27 +119,25 @@ verification) follow [docs/adding-tools-and-integrations.md](docs/adding-tools-a
 - **No Inline Tests:** Avoid adding `*_test.py` files directly inside source packages. We are phasing out existing inline tests to keep the core logic clean.
 - Bug fixes should include a test that would have caught the bug
 - New features should have corresponding tests
-- Aim for >80% code coverage (run `make test-cov` to check)
+- Cover the changed behavior and meaningful failure modes; aim for >80% code coverage using the report produced on `main`.
 
-### 4. Run Local Checks (Required Before PR)
+### 4. Validate the Change
 
-```bash
-make lint          # ruff: check code style
-make format-check  # ruff: check formatting (read-only)
-make typecheck     # mypy: check type annotations
-make test-cov      # pytest: run tests with coverage report
-```
-
-All four must pass. **CI will block merging if any fail.**
+[CI.md](CI.md) is the source of truth for local validation. Run the smallest
+relevant regression tests, or `make test-scope` to select affected tests.
+Documentation-only changes need a diff/link review, not manual Python checks.
+Do not repeat the installed push gate or run the full PR pipeline locally.
+Include the validation performed in the PR description; required GitHub checks
+must pass before merge.
 
 ### Run one focused test
 
 Replace the placeholders with your actual file or test name:
 
 ```bash
-pytest tests/cli/test_.py                                       # single file
-pytest tests/cli/test_.py::test_                                # single function
-pytest tests/tools/ -k "test_registry"                          # tools example
+uv run python -m pytest tests/cli/test_.py                     # single file
+uv run python -m pytest tests/cli/test_.py::test_               # single function
+uv run python -m pytest tests/tools/ -k "test_registry"         # tools example
 ```
 
 ### 5. Open a Pull Request
@@ -161,7 +159,7 @@ Use the **[PR template](.github/PULL_REQUEST_TEMPLATE.md)** (automatically provi
 ### PR Checklist Before Submitting
 
 - Linked to the relevant issue
-- All local checks pass: `make lint && make format-check && make typecheck && make test-cov`
+- Performed the scoped local validation in [CI.md](CI.md) and recorded the result
 - Added tests for bug fixes or new features
 - Updated documentation if behavior changed
 - Code follows project style (see **Code Quality** section below)
@@ -224,16 +222,11 @@ We use:
 - **Black-compatible** formatting (4-space indents)
 - **pytest** for testing with coverage tracking
 
-Run these before every commit:
+PR CI enforces style, formatting, typing, and automated tests. Follow
+[CI.md](CI.md) for focused local feedback; these are not a second mandatory
+checklist before every commit.
 
-```bash
-make lint          # Auto-fixes many style issues
-make format-check  # Checks formatting without modifying files
-make typecheck     # Catches type errors
-make test-cov      # Ensures tests pass and coverage is tracked
-```
-
-To verify the package can be shipped, run:
+For diagnosing a packaging issue locally, use:
 
 ```bash
 make build

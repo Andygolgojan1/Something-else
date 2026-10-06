@@ -17,20 +17,18 @@ opensre onboard
 uv run opensre   # open the interactive shell
 ```
 
-## Quality gates (same as CI)
+## Local validation and PR CI
 
-From the repo root:
+Follow [CI.md](../CI.md) for the required local validation. During development,
+run the closest regression tests or `make test-scope`. Review the diff and
+links for documentation-only changes; do not run manual Python checks.
 
-```bash
-make lint          # ruff check
-make format-check  # ruff format --check (CI-enforced)
-make typecheck     # mypy config core gateway integrations infrastructure surfaces tools
-make test-cov      # pytest + coverage (default unit suite)
-```
-
-One-shot (includes heavier `test-full`): `make check`.
-
-Before a PR, run at least `make lint`, `make format-check`, `make typecheck`, and `make test-cov` (see [CONTRIBUTING.md](https://github.com/Tracer-Cloud/opensre/blob/main/CONTRIBUTING.md)).
+`make install` also installs the blocking push hook, which validates committed
+revisions with shared quality checks and affected tests. Do not repeat it
+manually with `make check` (an alias for `make pre-push`) before pushing.
+PR CI runs repository-wide static checks, typechecking, automated tests, and
+packaging preflight; `main` produces coverage and runs full CodeQL. Record
+local validation in the PR and follow remote checks and review feedback.
 
 ## Interactive shell action policy
 

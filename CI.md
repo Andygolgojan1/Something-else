@@ -1,9 +1,9 @@
-# Local CI Readiness — Mandatory Pre-Push Harness
+# Local Validation and PR CI
 
 This file is the **single source of truth** for required local validation before
 any push or pull request. Repository-wide validation runs in GitHub Actions.
-Feature- or package-specific validation required by an applicable contributor
-guide supplements this harness and is intentionally not duplicated here.
+GitHub Actions owns the complete automated PR validation. Local work should
+provide fast feedback on the change, without manually repeating that pipeline.
 
 <!--
 Keep this document focused on required local checks and post-PR follow-through.
@@ -28,14 +28,35 @@ arguments and ref updates.
 
 ## 2) Focused tests and complete CI
 
-Use `make test-scope` to run only the affected tests during development. It
-uses the same mapping as the push gate and never falls back to a full coverage
-run. Package-specific validation required by contributor guides still applies.
+Use the smallest relevant regression test or `make test-scope` during
+development. Choose one scope that exercises the changed behavior; do not
+run a test file, its parent suite, and the scope target consecutively for the
+same unchanged code. Repeat or broaden only after changes, failures, or an
+unresolved concern justify it.
+
+| Change | Manual local validation |
+| --- | --- |
+| Non-executable documentation only | Review the diff and affected links; no Python checks. Runtime prompts and skill cards are not ordinary documentation. |
+| Product or test behavior | Run the closest regression tests, or `make test-scope` when the affected tests are unclear. Record the scope and result in the PR. |
+| Behavior outside automated PR coverage | Run the relevant package-specific smoke, live-integration, install, or UI check. Explain what it verifies and any unavailable credentials or environment. |
+
+Do not require separate local `make lint`, `make format-check`,
+`make typecheck`, import/registry checks, `make test-full`, or `make test-cov`
+before each commit, push, or PR. Do not manually run `make check` or
+`make pre-push` immediately before a push that already runs the installed
+hook. These commands remain available for diagnosing a specific failure.
+
+The installed hook still runs its shared quality checks and selected tests
+against the committed revisions. This policy removes duplicate manual runs;
+it does not disable the hook or authorize its emergency override for routine
+work. Package guides may require checks for behavior that PR CI does not
+exercise, but must not add another mandatory run of CI-covered checks.
 
 GitHub Actions uses the same quality check definitions as the local gate and
-runs the complete test matrix. The local gate does not replace repository-wide
-CI, Linux/Windows checks, CodeQL, packaging, or release validation. List the
-focused tests you ran in the PR description.
+runs the complete PR test selection. It owns repository-wide static checks,
+typechecking, import/registry contracts, automated tests, and packaging
+preflight. Coverage, full CodeQL, and release validation run on `main` as
+described below. Local results do not waive required GitHub checks.
 
 ## 3) Emergency override
 
