@@ -106,8 +106,6 @@ jobs:
             mypy-${{ runner.os }}-py${{ steps.setup-python.outputs.python-version }}-${{
             hashFiles('uv.lock', 'mypy.ini') }}-${{
             github.event.pull_request.base.sha || github.sha }}
-          restore-keys: |
-            mypy-${{ runner.os }}-py${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('uv.lock', 'mypy.ini') }}-
 
       - name: Install dependencies
         if: steps.changes.outputs.source == 'true' || github.event_name == 'push'
