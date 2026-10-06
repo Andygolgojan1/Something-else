@@ -100,6 +100,26 @@ def test_natural_language_is_left_alone() -> None:
     assert redact_text(text) == text
 
 
+def test_standalone_bearer_prose_survives_history_while_credentials_are_masked(
+    tmp_path: Path,
+) -> None:
+    history_file = tmp_path / "history"
+    backend = RedactingFileHistory(str(history_file))
+    for text in ("Bearer authentication", "bearer support", "Bearer abc"):
+        assert redact_text(text) == text
+        backend.store_string(text)
+    for text in ("Bearer abc123", "Bearer sample-token", "Bearer " + "a" * 32):
+        assert text.split()[1] not in redact_text(text)
+        backend.store_string(text)
+    backend.store_string("Authorization: Bearer abc")
+    contents = history_file.read_text(encoding="utf-8")
+    assert "Bearer authentication" in contents
+    assert "bearer support" in contents
+    assert "Bearer abc\n" in contents
+    assert "abc123" not in contents and "sample-token" not in contents
+    assert "Authorization: Bearer abc" not in contents
+
+
 def test_only_secret_segment_is_replaced() -> None:
     raw = "kubectl describe pod and AKIAIOSFODNN7EXAMPLE was in the env"
     out = redact_text(raw)

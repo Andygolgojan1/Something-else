@@ -144,9 +144,12 @@ def test_preview_preserves_resource_names_and_ordinary_bearer_phrases() -> None:
         "name": "task-service-with-a-long-name",
         "value": "sk-testcredentialtestcredential",
         "message": "bearer of good news",
+        "authentication": "Bearer authentication",
+        "support": "bearer support",
+        "short": "Bearer abc",
     }
     preview = format_json_preview(arguments)
-    for key in ("service", "target", "name", "message"):
+    for key in ("service", "target", "name", "message", "authentication", "support", "short"):
         assert arguments[key] in preview
     assert arguments["value"] not in preview
 

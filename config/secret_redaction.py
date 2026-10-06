@@ -43,11 +43,6 @@ def _build_default_rules() -> tuple[RedactionRule, ...]:
             r"\1[REDACTED]@",
         ),
         (
-            "bearer_value",
-            r"(?i)^(\s*bearer\s+)[A-Za-z0-9._~+/-]+=*(\s*)$",
-            r"\1[REDACTED]\2",
-        ),
-        (
             "bearer_header",
             r"(?i)\b((?:proxy-)?authorization\s*[:=]\s*(?:bearer|basic)\s+)[A-Za-z0-9._~+/-]+=*",
             r"\1[REDACTED]",

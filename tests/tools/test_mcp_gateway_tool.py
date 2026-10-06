@@ -328,3 +328,39 @@ def test_discovery_never_echoes_credentials_from_filters_or_schema_keys() -> Non
         name_filter=client.config.auth_token, _mcp_gateway_client=client
     )
     assert client.config.auth_token not in repr(filtered)
+
+
+def test_oversized_structured_only_results_retain_redacted_outcome_previews() -> None:
+    import json
+
+    client = MagicMock()
+    client.config.auth_token = "configured-token"
+    for field, payload, expected, call in (
+        (
+            "structured_content",
+            {"status": "completed", "api_key": "opaque-key", "details": "\u2603" * 100000},
+            '"status": "completed"',
+            call_mcp_gateway_tool,
+        ),
+        (
+            "content",
+            [{"type": "text", "text": "ready configured-token " + "x" * 100000}],
+            "ready",
+            call_mcp_gateway_read_tool,
+        ),
+    ):
+        client.call_tool.return_value = {
+            "is_error": False,
+            "tool": "run",
+            "text": "",
+            field: payload,
+        }
+        result = call("run", _mcp_gateway_client=client)
+        shown = json.dumps(result)
+        assert result["truncated"] is True
+        assert len(shown) < 60000
+        assert expected in result["text"]
+        assert "incomplete" in result["text"]
+        assert "opaque-key" not in shown and "configured-token" not in shown
+        assert "Do not repeat a completed mutation" in result["notes"]
+    assert client.call_tool.return_value["content"][0]["text"].startswith("ready configured-token")

@@ -12,6 +12,28 @@ _MAX_RESULT_CHARS = 60_000
 _TEXT_PREVIEW_CHARS = 4_000
 
 
+def _result_preview(safe: dict[str, Any]) -> str:
+    """Keep text or a bounded, explicitly incomplete preview of structured data."""
+    text = safe.get("text")
+    if isinstance(text, str) and text.strip():
+        return text[:_TEXT_PREVIEW_CHARS]
+    structured = safe.get("structured_content") or safe.get("content")
+    if not structured:
+        return ""
+    parts: list[str] = []
+    remaining = _TEXT_PREVIEW_CHARS
+    try:
+        for chunk in json.JSONEncoder(ensure_ascii=True).iterencode(structured):
+            part = chunk[:remaining]
+            parts.append(part)
+            remaining -= len(part)
+            if not remaining:
+                break
+    except (TypeError, ValueError, RecursionError):
+        return ""
+    return "Structured data preview (incomplete):\n" + "".join(parts)
+
+
 def safe_tool_result(payload: dict[str, object], *, auth_token: str) -> dict[str, Any]:
     """Redact every output path, preserving small results and marking omitted data."""
     safe: dict[str, Any] = redact_sensitive(scrub_configured_token(payload, auth_token))
@@ -21,8 +43,7 @@ def safe_tool_result(payload: dict[str, object], *, auth_token: str) -> dict[str
         size = None
     if size is not None and size <= _MAX_RESULT_CHARS:
         return safe
-    text = safe.get("text")
-    summary = text[:_TEXT_PREVIEW_CHARS] if isinstance(text, str) else ""
+    summary = _result_preview(safe)
     result = {
         "source": "mcp_gateway",
         "available": safe.get("available", True),
