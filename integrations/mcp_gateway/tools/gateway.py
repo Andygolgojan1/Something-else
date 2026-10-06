@@ -110,7 +110,7 @@ def _normalize_result(result: dict[str, object]) -> dict[str, object]:
     if result.get("is_error"):
         error = "MCP gateway tool reported an execution error."
         return _remote_failure(error, tool_name=tool_name, arguments=normalized_arguments)
-    return {
+    normalized = {
         "source": "mcp_gateway",
         "available": True,
         "tool": tool_name,
@@ -119,6 +119,10 @@ def _normalize_result(result: dict[str, object]) -> dict[str, object]:
         "structured_content": result.get("structured_content"),
         "content": result.get("content", []),
     }
+    for key in ("truncated", "original_serialized_chars", "original_size_is_lower_bound", "notes"):
+        if key in result:
+            normalized[key] = result[key]
+    return normalized
 
 
 def _call(

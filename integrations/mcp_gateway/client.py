@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TypedDict, cast
+from typing import TypedDict
 
 from integrations.mcp_client import McpSessionOptions, call_mcp_tool, list_mcp_tools
 from integrations.mcp_gateway.config import McpGatewayConfig
 from integrations.mcp_gateway.errors import McpGatewayRefused, safe_request_error
-from integrations.mcp_gateway.redaction import public_tool_name, scrub_configured_token
+from integrations.mcp_gateway.redaction import public_tool_name
+from integrations.mcp_gateway.results import safe_tool_result
 
 
 class McpGatewayToolDescriptor(TypedDict):
@@ -120,5 +121,5 @@ class McpGatewayClient:
                 timeout_seconds=self.config.timeout_seconds,
             )
         else:
-            return cast(dict[str, object], scrub_configured_token(result, self.config.auth_token))
+            return safe_tool_result(result, auth_token=self.config.auth_token)
         raise error

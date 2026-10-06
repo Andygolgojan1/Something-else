@@ -270,7 +270,12 @@ def test_all_successful_result_fields_redact_credentials_without_mutating_input(
         "tool": "read",
         "arguments": {"password": "opaque-password"},
         "text": "prefix_" + key,
-        "structured_content": {"api_key": "opaque-other-key", "value": aws_key},
+        "structured_content": {
+            "api_key": "opaque-other-key",
+            "value": aws_key,
+            "configured-token": "first-target",
+            "[redacted]": "second-target",
+        },
         "content": [{"text": "configured-token", "authorization": "opaque-header"}],
     }
     client.call_tool.return_value = raw
@@ -287,6 +292,7 @@ def test_all_successful_result_fields_redact_credentials_without_mutating_input(
         assert credential not in shown
     assert raw["text"] == "prefix_" + key
     assert raw["structured_content"]["api_key"] == "opaque-other-key"
+    assert "first-target" in shown and "second-target" in shown
 
 
 def test_large_successful_result_is_explicitly_bounded_after_redaction() -> None:
@@ -364,3 +370,69 @@ def test_oversized_structured_only_results_retain_redacted_outcome_previews() ->
         assert "opaque-key" not in shown and "configured-token" not in shown
         assert "Do not repeat a completed mutation" in result["notes"]
     assert client.call_tool.return_value["content"][0]["text"].startswith("ready configured-token")
+
+
+def test_large_remote_results_stop_traversing_before_copying_all_data() -> None:
+    class BudgetedList(list):
+        def __iter__(self):
+            for _ in range(100):
+                yield {"status": "ready", "data": "x" * 10000}
+            raise AssertionError("Remote data traversed beyond the output budget")
+
+    raw = {
+        "tool": "read",
+        "text": "",
+        "structured_content": BudgetedList([None]),
+    }
+    client = McpGatewayClient(
+        McpGatewayConfig(
+            url="https://mcp.example.test/mcp",
+            auth_token="configured-token",
+            read_only_tools=("read",),
+        )
+    )
+    with (
+        patch(
+            "integrations.mcp_gateway.client.list_mcp_tools",
+            return_value=[types.Tool(name="read", input_schema={})],
+        ),
+        patch("integrations.mcp_gateway.client.call_mcp_tool", return_value=raw),
+    ):
+        result = call_mcp_gateway_read_tool("read", _mcp_gateway_client=client)
+        raw["is_error"] = True
+        failure = call_mcp_gateway_read_tool("read", _mcp_gateway_client=client)
+    assert result["truncated"] is True
+    assert "ready" in result["text"]
+    assert result["original_size_is_lower_bound"] is True
+    assert failure["error_kind"] == "remote_tool_error"
+    discovery = MagicMock()
+    discovery.config.auth_token = "configured-token"
+    discovery.config.read_only_tools = ()
+    discovery.list_tools.return_value = [
+        {"name": "read", "description": "", "input_schema": {"enum": raw["structured_content"]}}
+    ]
+    listing = list_mcp_gateway_tools(include_schema=True, _mcp_gateway_client=discovery)
+    assert "size limit" in listing["tools"][0]["schema_omitted"]
+
+
+def test_size_counting_handles_escaped_json_and_bounded_preview_secret_edges() -> None:
+    import json
+
+    from integrations.mcp_gateway.payload_limits import json_size_up_to
+
+    payload = {"control": '\u0001\u007f\n\\"', "values": [None, True, -1, 1.5, "\U0001f680"]}
+    assert json_size_up_to(payload, 1000) == len(json.dumps(payload, ensure_ascii=True))
+    assert json_size_up_to("\u2603" * 10000, 1000) > 1000
+    client = MagicMock()
+    client.config.auth_token = "configured-token"
+    key = "-----BEGIN PRIVATE KEY-----\n" + "private-material\n" * 10000
+    client.call_tool.return_value = {"tool": "read", "text": "ready " + key}
+    result = call_mcp_gateway_read_tool("read", _mcp_gateway_client=client)
+    assert "ready" in result["text"]
+    assert "private-material" not in repr(result)
+    client.call_tool.return_value = {
+        "tool": "read",
+        "text": "x " * 1997 + "configured-token" + " trailing " * 10000,
+    }
+    result = call_mcp_gateway_read_tool("read", _mcp_gateway_client=client)
+    assert "configured" not in repr(result)
