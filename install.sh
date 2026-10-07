@@ -7,6 +7,10 @@
 
 set -euo pipefail
 
+# Keep the optional canary credential in this shell, not in child environments.
+GITHUB_METADATA_TOKEN="${GITHUB_TOKEN:-}"
+unset GITHUB_TOKEN
+
 if [ -t 1 ]; then
   COLOR_RESET=$'\033[0m'
   COLOR_RED=$'\033[31m'
@@ -414,10 +418,7 @@ download_to() {
 
 download_text() {
   local url="$1"
-  local github_token="${GITHUB_TOKEN:-}"
-
-  # Keep the canary token out of later downloads and the installed process.
-  unset GITHUB_TOKEN
+  local github_token="${GITHUB_METADATA_TOKEN:-}"
 
   if [ -n "$github_token" ]; then
     local authenticated_response
