@@ -3,19 +3,19 @@ name: delegating-github-ci-repairs
 description: >-
   In the interactive shell, prepare the hosted gateway and delegate a bounded
   GitHub PR repair or remote demo. Use for remote CI repair onboarding.
-getting_started: Run CI/CD repairs remotely
+getting_started: Run one repair in OpenSRE Cloud
 demo_order: 3
 metadata:
   owner: Vincent
-  last_changed_by: Jan
-  last_changed_at: 2026-10-01
+  last_changed_by: Vincent
+  last_changed_at: 2026-10-04
   usecases:
     - For interactive-shell users running a GitHub CI repair on their hosted gateway.
   requires:
     - A reachable hosted gateway with a GitHub integration and an authenticated coding agent.
     - An interactive shell and a signed-in OpenSRE account in the organization for hosted gateway access.
     - GitHub write access to the selected PR; demo mode also needs private-repository creation.
-  version: "2.5"
+  version: "2.13"
 ---
 
 # Delegate a remote CI repair
@@ -30,11 +30,11 @@ This runs one bounded repair that finishes on the gateway without the shell. It 
 
 **Executor (gateway):**
 
-- Runs the repair with the skill `scheduling-github-ci-repairs` and reports back to the shell.
+- Calls `run_ci_repair_demo` once and reports that result back to the shell.
 
 ## Plan
 
-Use `update_plan` to create the live plan from the workflow headings below:
+Use `update_plan` to create the live plan from the workflow headings below. Mark a step `in_progress` or `completed` in the same response as that step's tool call. A response that only calls `update_plan` is not progress.
 
 **Inside the interactive shell:**
 
@@ -49,14 +49,8 @@ Use `update_plan` to create the live plan from the workflow headings below:
 
 **Remote Gateway agent:**
 
-- [ ] Read the following skill: `scheduling-github-ci-repairs` to understand how to seed a demo PR and inside a demo repository and how to fix it. 
-- [ ] Create the demo repository, failing branch, and PR (demo only).
-- [ ] Confirm GitHub reports the failure with list_github_actions_workflow_runs.
-- [ ] Schedule the bounded repair with schedule_ci_repair_loop and record its task id.
-- [ ] Wait for the scheduled tick with get_ci_repair_loop and read its report.
-- [ ] Verify the repair with one `pr view` call.
-- [ ] Save evidence, remove the demo loop, and verify with `/cron list`. Nothing on GitHub is deleted; the demo repository is kept.
-- [ ] Respond with the outcome report as Markdown.
+- [ ] Call `run_ci_repair_demo` once for the approved owner and repo, without loading a skill.
+- [ ] Respond with that tool's outcome as Markdown. Nothing on GitHub is deleted; the demo repository is kept.
 
 **Inside the interactive shell:**
 
@@ -90,19 +84,15 @@ The workflow succeeds only when:
 
 Send one `ask_hosted_gateway` prompt:
 
-Report this gateway's GitHub access for a CI repair demo. Run only these calls and create nothing:
-
-- [1] `github_cli ["api", "user", "--include"]` for the login. An `X-OAuth-Scopes` header means a classic PAT: list its scopes, which need `repo` and `workflow` (the demo pushes a workflow file). No header means a fine-grained or app token.
-
-- [2] `github_cli ["api", "user/memberships/orgs", "--jq", "[.[] | {org: .organization.login, role, state}]"]`
-
-- [3] For each organization: `github_cli ["api", "graphql", "-f", "query=query($o: String!) { organization(login: $o) { viewerCanCreateRepositories } }", "-F", "o=<org>"]`, Answer with the login, the token type and scopes, and one line per owner (the login plus each organization) saying whether it can create repositories. Then propose a name for a new demo repository as `<owner>/<name>`; it does not exist yet.
+Report this gateway's GitHub access for a CI repair demo. Call `probe_github_repair_access` once and create nothing. Answer with the login, the token type and scopes, and one line per owner (the login plus each organization) from `owners`, saying whether `can_create_repositories` is true. Do not propose a repository name.
 
 **Complete when:**
 
 - The gateway named the login, the token type, and at least one owner that can create repositories. Otherwise, a blocker is recorded.
 
 ### Display the final repair plan
+
+If the opening message already answers `Create a private demo repository?` with `Create <owner>/<repo>` or `Create <repo>`, that is the target. Do not call `ask_user_choice` for it. Pass that owner and repo as the delegate `facts`. A name without an owner uses the login from the probe. `Don't create a demo repository` keeps the existing-pull-request path below.
 
 Show the final repair plan titled `Remote Repair Plan`. Put the probe's findings (login, token type, owner) in the overview so the user can see it once. 
 
@@ -116,7 +106,7 @@ Show the final repair plan titled `Remote Repair Plan`. Put the probe's findings
 
 ### Delegate the repair
 
-- Send one `ask_hosted_gateway` prompt: "This is a new request. Start a new plan from `scheduling-github-ci-repairs` for <target>; do not reuse plan steps, task IDs, or repositories from earlier in this conversation. Delete nothing on GitHub."
+- Send one `ask_hosted_gateway` prompt: "This is a new request. Call `run_ci_repair_demo` once with owner <owner> and repo <repo>. Do not load a skill; this prompt is the whole task. Do not reuse task IDs or repositories from earlier in this conversation. Delete nothing on GitHub. Ask the user only about a blocked step. If the seed or schedule fails, return that failure and do not schedule another loop."
 - Pass the target as `facts` (`demo`, `owner`, `repo`, `pr_number`). Keep the prompt ID.
 
 
@@ -124,9 +114,12 @@ Show the final repair plan titled `Remote Repair Plan`. Put the probe's findings
 
 ### Verify the remote outcome
 
-- Call `ask_hosted_gateway(prompt_id=<the delegated prompt ID>)` once. Do not send a new prompt.
+### Verify the remote outcome
+
+- Call `ask_hosted_gateway(prompt_id=<the delegated prompt ID>)` once. Send no new prompt.
 - Check the record against the delegated report: same task ID, a fix commit, a passing run ID, and the loop removed.
-- If it says the gateway is not running, do not start it just to verify. Mark this step blocked with "gateway stopped after reporting; the delegated report is unverified" and show that report.
+- This re-read is the only verification. `github_cli` and `list_github_actions_workflow_runs` are outside this step. A short transcript still verifies when the record has the task ID, the fix commit, and the passing run ID.
+- If it says the gateway is not running, leave it stopped. Mark this step blocked with "gateway stopped after reporting; the delegated report is unverified" and show that report.
 
 **Complete when:**
 
@@ -136,9 +129,15 @@ Show the final repair plan titled `Remote Repair Plan`. Put the probe's findings
 
 - Report the target PR, task ID, repair outcome, available CI evidence links, and retained resources. State pending, blocked, or failed outcomes plainly and concisely. 
 
+- Write each GitHub link as its full URL, such as `Pull request: https://github.com/<owner>/<repo>/pull/<n>`, not as Markdown link text: the terminal shows link text without its URL. Give the pull request, failing commit, failed run, fix commit, and passing run URLs that the delegated record has.
+
+- Add a `Root cause analysis` section from the delegated record: what failed, the root cause, the fix (with its diff when the record shows one), and the verification. State only what the record says; if it has no root cause analysis, say the gateway did not report one.
+
 - The task's gateway ownership establishes independence from the shell; claim a tested disconnect only if the shell was actually disconnected during execution.
 
 - Show the report once. Do not repeat the gateway's streamed steps.
+
+- Do not call `memory_recall` or `memory_remember` in this workflow.
 
 **Complete when:**
 
@@ -146,17 +145,26 @@ Show the final repair plan titled `Remote Repair Plan`. Put the probe's findings
 
 ### Offer the follow-up
 
-After a successful repair report, use `ask_user_choice`:
+After a successful repair report, one `ask_user_choice` with the title
+`Hand off the next CICD fix?`, `allow_custom` false, and these options:
 
-- Configure Slack or Telegram
-- Add more scheduled tasks
-- Exit to interactive shell
+- Fix a failing PR from Slack by tagging @OpenSRE
+- Guard failing PRs on one of your repos
+- Not now
 
-**Complete when:**
+Complete when the `ask_user_choice` call for this menu has returned in
+this turn. The user's answer arrives in the next turn.
 
-- The appropriate menu is offered. 
-- Keep this step pending until the report has been shown
-
+- **Connect Slack so the agent can fix issues there:** call
+  `skill_view(name="connecting-slack")` and follow that skill. A channel
+  mention or DM hands off the next failing check. Do not post to Slack, and
+  do not offer Telegram.
+- **Schedule a repair loop on a repo you use, so the next failing PR gets fixed:**
+  call `skill_view(name="scheduling-github-ci-repairs")` and follow that skill.
+  Do not reuse the private demo. Select a repository the user already uses,
+  so the loop stays and pushes a fix for the next failing pull request.
+  The machine has to stay on.
+- **Return to the shell:** acknowledge in one line and conclude.
 
 ### Blockers 
 

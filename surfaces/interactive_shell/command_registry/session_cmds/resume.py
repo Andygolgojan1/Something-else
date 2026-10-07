@@ -101,7 +101,17 @@ def _apply_resume_data_unlocked(
     short_id = sid[:8] if len(sid) >= 8 else sid
     name = data.get("name") or ""
 
-    if not messages and not context:
+    has_saved_state = any(
+        (
+            messages,
+            context,
+            history,
+            data.get("session_goal_state"),
+            data.get("task_plan_state"),
+            data.get("pending_user_choice_state"),
+        )
+    )
+    if not has_saved_state:
         console.print(
             f"[{DIM}]session {short_id} has no conversation to resume "
             "(no chat turns or context found).[/]"
@@ -131,9 +141,15 @@ def _apply_resume_data_unlocked(
 
     source = "snapshot" if has_snapshot else "turn records"
     name_str = f" · {escape(name)}" if name else ""
+    restored_summary = (
+        f"{len(messages)} messages in context from {source}"
+        if messages
+        else f"{len(history)} prior turns restored"
+        if history
+        else "saved state restored"
+    )
     console.print(
-        f"[{HIGHLIGHT}]resumed session {short_id}{name_str}[/] "
-        f"[{DIM}]({len(messages)} messages in context from {source})[/]"
+        f"[{HIGHLIGHT}]resumed session {short_id}{name_str}[/] [{DIM}]({restored_summary})[/]"
     )
 
     render_resumed_session_history(

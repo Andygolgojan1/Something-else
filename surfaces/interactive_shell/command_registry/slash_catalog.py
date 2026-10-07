@@ -118,7 +118,7 @@ def format_slash_catalog_text(
 def slash_invoke_tool_description(specs: list[SlashCommandSpec] | None = None) -> str:
     entries = specs if specs is not None else build_slash_command_specs()
     header = (
-        "Run a slash command in the OpenSRE interactive shell. "
+        "Run a slash command. "
         "Use this only for explicit slash-command operations: literal /command "
         "text, requests that explicitly ask to run a slash command, requests to configure "
         "or connect an integration, or "
@@ -154,12 +154,15 @@ def slash_invoke_input_schema(
     args_description = (
         "Positional arguments after the command name. Valid values depend on the "
         "chosen command — see the slash_invoke tool description. Examples: "
-        '["list"] for /tools, ["verify", "datadog"] for /integrations.'
+        '[] for /tools, ["verify", "datadog"] for /integrations.'
     )
     return object_schema(
         properties={
             "command": string_property(
-                description="Slash command name including leading `/`.",
+                description=(
+                    "Slash command name only, including the leading `/` (e.g. "
+                    "`/integrations`). Put every word after it in `args`, never in `command`."
+                ),
                 enum=command_names,
             ),
             "args": string_array_property(description=args_description),

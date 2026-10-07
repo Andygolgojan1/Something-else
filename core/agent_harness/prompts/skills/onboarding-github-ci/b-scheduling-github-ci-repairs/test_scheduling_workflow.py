@@ -134,16 +134,37 @@ def test_skill_card_spells_out_the_loop_call_and_waits_for_the_scheduler() -> No
     # takes the repair with it. Verification stays a single read.
     assert '"args": ["run", "<id>"]' not in body
     assert "Do not run `/cron run <id>`." in body
-    assert 'get_ci_repair_loop(task_id="<id>", wait_seconds=60)' in body
+    assert 'get_ci_repair_loop(task_id="<id>", wait_until_terminal=true)' in body
     assert "terminal: true" in body
     assert "headRefOid,commits,statusCheckRollup" in body
     assert "Do not run the tests locally" in body
-    # The demo loop is removed after the evidence is saved; the repository is
-    # kept, so the token never needs delete_repo scope.
-    assert '"args": ["remove", "<id>"]' in body
+    # One cleanup call removes the scheduled task and keeps the repository,
+    # so the token never needs delete_repo scope and the card does not spell
+    # a separate `/cron remove`.
+    assert "finish_ci_repair_demo(" in body
+    assert '"args": ["remove", "<id>"]' not in body
     assert '["repo", "delete"' not in body
     assert "report that the repository remains" in body
+    assert "Create <owner>/<repo>" in body
+    # The private demo runs seed, schedule, wait, read and finish in one call,
+    # with the demo's fast checks, and is never retried within the plan.
+    assert 'Call `run_ci_repair_demo(owner="<owner>", repo="<repo>")` once.' in body
+    assert "Do not call it again in this plan." in body
     assert skill_reference_names(SCHEDULING_GITHUB_CI_REPAIRS_SKILL_NAME) == ("script-tools",)
+
+
+def test_the_hand_off_follows_only_a_successful_repair() -> None:
+    """A blocked run asks about its blocker; the success-path hand-off never stands in for it."""
+    body = load_skill_body(SCHEDULING_GITHUB_CI_REPAIRS_SKILL_NAME)
+    assert (
+        "After a successful repair report is shown, call `ask_user_choice` with the title" in body
+    )
+    assert (
+        "After a blocked or failed run, ask the blocker question instead of the menu below" in body
+    )
+    assert "naming the blocked run step and its blocker" in body
+    # The gateway never offers the shell's hand-off; the delegating shell owns follow-ups.
+    assert "On the hosted gateway, skip the menu below after a successful report" in body
 
 
 def test_plan_checklist_matches_workflow_headings() -> None:
@@ -174,8 +195,9 @@ def test_repository_question_carries_the_plan_and_blocks_creation_until_answered
         resolved_integrations_cache={},
     )
     calls: list[tuple[str, dict[str, Any]]] = []
-    plan = [{"step": step, "status": "pending"} for step in steps]
-    plan[0]["status"] = "in_progress"
+    checklist = [{"step": step, "status": "pending"} for step in steps]
+    started = [dict(item) for item in checklist]
+    started[0]["status"] = "in_progress"
     repository_menu = tool_response(
         "ask_user_choice",
         {"title": _REPOSITORY_QUESTION, "options": [_DEMO_OPTION, "acme/widget"]},
@@ -184,13 +206,14 @@ def test_repository_question_carries_the_plan_and_blocks_creation_until_answered
         [
             # Plan write, the repository question and eager repo creation in one
             # response: the menu must stand alone, so the runtime runs none of
-            # it and the model re-issues the plan write and then the menu.
+            # it. The re-issue records every step pending; the host then
+            # marks the first step in_progress. The menu follows on its own.
             _batch(
-                tool_response("update_plan", {"plan": plan}),
+                tool_response("update_plan", {"plan": started}),
                 repository_menu,
                 tool_response("github_cli", {"args": ["repo", "create", "demo", "--private"]}),
             ),
-            tool_response("update_plan", {"plan": plan}),
+            tool_response("update_plan", {"plan": checklist}),
             repository_menu,
         ]
     )

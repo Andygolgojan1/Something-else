@@ -26,6 +26,7 @@ from tests.shared.harness_api import API_MODULES, SPI_ROLES
 ROOT_API = frozenset(
     {
         "AgentSession",
+        "LoopTemplate",
         "OutputSink",
         "PromptSurface",
         "SessionConfig",
@@ -35,6 +36,8 @@ ROOT_API = frozenset(
         "TurnResult",
         "is_legacy_skill_name",
         "is_recurring_skill",
+        "load_loop_template",
+        "loop_template_names",
         "normalize_skill_name",
         "pin_recurring_skill",
         "resolve_scheduled_skill",
@@ -68,6 +71,16 @@ PORTS = frozenset(
 )
 
 SPI_ROLE_NAMES: dict[str, frozenset[str]] = {
+    "activity": frozenset(
+        {
+            "HostedActivity",
+            "bounded_activity_preview",
+            "format_hosted_activity",
+            "generic_tool_activity",
+            "github_cli_activity",
+            "is_sensitive_activity_key",
+        }
+    ),
     "session_goal": frozenset(
         {
             "MAX_GOAL_CONDITION_CHARS",
@@ -76,6 +89,7 @@ SPI_ROLE_NAMES: dict[str, frozenset[str]] = {
             "SessionGoalReason",
             "SessionGoalStatus",
             "GoalPaintSignature",
+            "apply_session_goal_control",
             "attach_session_goal",
             "build_session_goal",
             "clear_session_goal",
@@ -96,15 +110,21 @@ SPI_ROLE_NAMES: dict[str, frozenset[str]] = {
         {
             "PendingScheduleOffer",
             "PendingUserChoice",
+            "SetupResume",
+            "arm_setup_resume",
             "clear_competing_pending_offers",
             "clear_pending_autosubmit",
+            "clear_setup_resume",
             "compact_session_branch",
             "exclusive_stdin_active",
             "format_recovery_note",
+            "pending_setup_resume",
             "pop_turn_outcome_hint",
             "session_terminal",
             "set_auto_command",
             "set_turn_outcome_hint",
+            "should_compact",
+            "take_setup_resume",
             "trust_mode_enabled",
             "withhold_capabilities",
         }
@@ -115,6 +135,7 @@ SPI_ROLE_NAMES: dict[str, frozenset[str]] = {
             "HostCancelReason",
             "ensure_turn_cancel",
             "host_cancel_requested",
+            "is_goal_control_reason",
             "turn_cancel_reason",
         }
     ),
@@ -122,9 +143,11 @@ SPI_ROLE_NAMES: dict[str, frozenset[str]] = {
         {
             "DefaultTurnAccounting",
             "LlmRunInfo",
+            "PromptSize",
             "SELF_RECORDING_ACTION_TOOL_NAMES",
             "ToolCallingAccountingStatus",
             "format_token_total",
+            "measure_next_prompt",
             "record_llm_turn",
             "resolve_model_name",
             "resolve_provider_name",
@@ -135,6 +158,8 @@ SPI_ROLE_NAMES: dict[str, frozenset[str]] = {
             "COHORT_IDENTITY_UNVERIFIED_MARK",
             "WANT_ME_TO_MARKER",
             "closer_tail_from",
+            "is_literal_command",
+            "is_outcome_report",
             "normalize_three_tier_spacing",
             "reply_reports_cohort_unverified",
             "strip_shell_prompt_chrome",
@@ -148,18 +173,39 @@ SPI_ROLE_NAMES: dict[str, frozenset[str]] = {
             "resolve_integrations",
         }
     ),
+    "skill_releases": frozenset(
+        {
+            "ReleaseError",
+            "SkillCardError",
+            "SkillCatalogSnapshot",
+            "SkillSource",
+            "SkillsRelease",
+            "active_skill_catalog",
+            "auto_update_enabled",
+            "build_snapshot",
+            "claim_announcement",
+            "is_release_path",
+            "latest_stored_seq",
+            "parse_frontmatter",
+            "read_skill_catalog",
+            "read_state",
+            "skills_dir",
+            "store_dir",
+            "trusted_release_keys",
+            "verify_release",
+            "write_release",
+            "write_state",
+        }
+    ),
     "grounding": frozenset(
         {
             "ActionSkill",
-            "CacheStats",
             "GETTING_STARTED_CUSTOM",
-            "GroundingSource",
             "SkillEntryMenu",
             "getting_started_skills",
             "list_action_skills",
             "load_skill_body",
             "load_skill_reference",
-            "log_grounding_cache_diagnostics",
             "skill_reference_names",
         }
     ),
@@ -208,6 +254,7 @@ SPI_ROLE_NAMES: dict[str, frozenset[str]] = {
             "record_task_plan_work",
             "step_label",
             "take_completed_plan_breakdown",
+            "task_plan_from_checklist",
             "task_plan_to_payload",
         }
     ),

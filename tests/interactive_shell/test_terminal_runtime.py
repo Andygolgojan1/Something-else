@@ -57,6 +57,7 @@ from surfaces.interactive_shell.ui.input_prompt.rendering import _prompt_message
 from surfaces.interactive_shell.ui.input_prompt.style import _build_prompt_style
 from surfaces.interactive_shell.ui.streaming import _CHARS_PER_TOKEN
 from surfaces.interactive_shell.ui.streaming.console import StreamingConsole
+from surfaces.interactive_shell.ui.transcript_view import TranscriptControl, TranscriptStore
 from surfaces.shared.terminal.components.cpr_stdin import (
     strip_cpr_escape_sequences,
     strip_cpr_sequences,
@@ -171,6 +172,14 @@ def test_build_prompt_session_uses_persistent_history(
     assert prompt.multiline is True
     assert prompt.reserve_space_for_menu == 0
     assert prompt.app.key_bindings is not None
+
+
+def test_full_screen_transcript_keeps_native_mouse_selection_available() -> None:
+    """Mouse reporting prevents the terminal from selecting transcript text."""
+    with create_app_session(input=DummyInput(), output=DummyOutput()):
+        prompt = input_prompt.build_prompt_session(transcript=TranscriptControl(TranscriptStore()))
+
+    assert prompt.app.renderer.mouse_support() is False
 
 
 def test_build_prompt_session_installs_growing_bordered_composer() -> None:
@@ -348,15 +357,14 @@ def test_shell_completer_filters_by_prefix() -> None:
     assert [completion.text for completion in completions] == ["/tools"]
 
 
-def test_shell_completer_suggests_subcommands_for_tools() -> None:
+def test_shell_completer_has_no_subcommands_for_tools() -> None:
     completions = list(
         ShellCompleter().get_completions(
             Document("/tools "),
             CompleteEvent(text_inserted=True),
         )
     )
-    names = sorted({c.text for c in completions})
-    assert names == ["list", "ls", "tool", "tools"]
+    assert completions == []
 
 
 def test_shell_completer_hides_inline_picker_autocomplete_in_tty(
@@ -372,6 +380,28 @@ def test_shell_completer_hides_inline_picker_autocomplete_in_tty(
     )
 
     assert completions == []
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("/integrations ", ["list", "setup", "remove", "verify", "show"]),
+        ("/mcp ", ["list", "connect", "disconnect"]),
+    ],
+)
+def test_shell_completer_shows_required_connection_subcommands_in_tty(
+    monkeypatch: pytest.MonkeyPatch, command: str, expected: list[str]
+) -> None:
+    monkeypatch.setattr(prompt_completion, "repl_tty_interactive", lambda: True)
+
+    completions = list(
+        ShellCompleter().get_completions(
+            Document(command),
+            CompleteEvent(text_inserted=True),
+        )
+    )
+
+    assert [completion.text for completion in completions] == expected
 
 
 def test_shell_completer_keeps_inline_picker_autocomplete_when_arg_started(
@@ -923,13 +953,13 @@ class TestSpinnerState:
 
     def test_inline_spinner_contains_stop_hint_when_streaming(self) -> None:
         """During streaming the inline spinner (shown in the prompt's first
-        reserved line) carries ``(Press ESC to stop)`` so the user can
+        reserved line) carries ``Esc to stop`` so the user can
         interrupt the dispatch.
         """
         spinner = loop_state.SpinnerState()
         spinner.start()
         rendered = _strip_ansi(spinner.inline_spinner_ansi())
-        assert "(Press ESC to stop)" in rendered
+        assert "Esc to stop" in rendered
         # Idle hint text should NOT appear in the spinner row.
         assert "/ for commands" not in rendered
 

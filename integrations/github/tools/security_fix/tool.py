@@ -59,6 +59,10 @@ _INPUT_SCHEMA: dict[str, Any] = {
             "type": "boolean",
             "description": "True when the user asks to raise/open a pull request or ship the fix.",
         },
+        "quality_only": {
+            "type": "boolean",
+            "description": "Fix only findings without a security severity; use for unattended loops on public repositories.",
+        },
         "github_token": {
             "type": "string",
             "description": "GitHub token injected from the configured integration.",
@@ -69,6 +73,8 @@ _INPUT_SCHEMA: dict[str, Any] = {
 
 
 def _github_security_fix_available(sources: dict[str, dict]) -> bool:
+    if sources.get("github", {}).get("connection_selection_error"):
+        return False
     gh = sources.get("github", {})
     return bool(
         github_source_available(sources)
@@ -143,6 +149,7 @@ def fix_github_security_alert(
     workspace: str | None = None,
     model: str | None = None,
     open_pr: bool = False,
+    quality_only: bool = False,
     github_token: str | None = None,
     context: Any = None,
     **_kwargs: Any,
@@ -157,6 +164,7 @@ def fix_github_security_alert(
         workspace=workspace,
         model=model,
         open_pr=open_pr,
+        quality_only=quality_only,
         github_token=github_token,
         confirm_fn=_confirm_fn(context),
     )

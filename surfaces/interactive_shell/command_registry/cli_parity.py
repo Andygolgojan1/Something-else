@@ -11,6 +11,8 @@ from rich.console import Console
 from rich.markup import escape
 
 from config.constants import OPENSRE_PARENT_INTERACTIVE_SHELL_ENV
+from config.interactive_override import interactive_override_env
+from config.scope_handoff import hand_off_scope
 from core.agent_harness.spi.session_state import session_terminal, set_turn_outcome_hint
 from surfaces.interactive_shell.command_registry.types import SlashCommand
 from surfaces.interactive_shell.runtime import Session
@@ -312,6 +314,11 @@ def run_cli_command(
         _captured_child_env(console, headless=headless) if should_capture else os.environ.copy()
     )
     child_env[OPENSRE_PARENT_INTERACTIVE_SHELL_ENV] = "1"
+    # The child inherits the environment, not the dispatching context, so a
+    # non-TTY slash command's override must be written into its env, and so
+    # must the turn's organization scope.
+    child_env.update(interactive_override_env())
+    hand_off_scope(child_env)
     exit_code: int | None = 0
     backgrounded = False
     try:
@@ -505,6 +512,22 @@ def _cmd_login(session: Session, console: Console, args: list[str]) -> bool:  # 
     return run_cli_command(console, ["auth", "login", *args], capture_output=False, session=session)
 
 
+def _validate_logout_args(args: list[str]) -> str | None:
+    """Reject provider names so ``/logout`` cannot be read as ``/auth logout``."""
+    if not args:
+        return None
+    provider = escape(args[0])
+    return (
+        f"[{ERROR}]/logout[/] signs out of the OpenSRE account and takes no arguments. "
+        f"To clear an LLM provider credential, run [bold]/auth logout {provider}[/bold]."
+    )
+
+
+def _cmd_logout(session: Session, console: Console, args: list[str]) -> bool:  # noqa: ARG001
+    """Sign out of the OpenSRE account. Same close-the-shell path as ``/account logout``."""
+    return _cmd_account(session, console, ["logout"])
+
+
 def _cmd_remote(session: Session, console: Console, args: list[str]) -> bool:  # noqa: ARG001
     # Remote-sync configuration prompts on the real TTY (click.prompt).
     return run_cli_command(console, ["remote", *args], capture_output=False, session=session)
@@ -536,6 +559,11 @@ def _cmd_config(session: Session, console: Console, args: list[str]) -> bool:
 
 def _cmd_runbooks(session: Session, console: Console, args: list[str]) -> bool:
     return run_cli_command(console, ["runbooks", *args], session=session)
+
+
+def _cmd_skills(session: Session, console: Console, args: list[str]) -> bool:
+    # ``/skills update`` stores the newest release; this session runs it from its next turn.
+    return run_cli_command(console, ["skills", *(args or ["status"])], session=session)
 
 
 def _cmd_messaging(session: Session, console: Console, args: list[str]) -> bool:
@@ -612,6 +640,14 @@ COMMANDS: list[SlashCommand] = [
         usage=("/login", "/login chatgpt", "/login claude", "/login deepseek"),
     ),
     SlashCommand(
+        "/logout",
+        "Sign out of the OpenSRE account and close the shell.",
+        _cmd_logout,
+        usage=("/logout",),
+        notes=("Same as /account logout. To clear one LLM provider, use /auth logout <provider>.",),
+        validate_args=_validate_logout_args,
+    ),
+    SlashCommand(
         "/setup",
         "First-run setup: OpenSRE account, hosted model, then the interactive shell.",
         _cmd_setup,
@@ -670,6 +706,17 @@ COMMANDS: list[SlashCommand] = [
             "/runbooks add github --name <name> --repo <owner/repo>",
             "/runbooks verify <name>",
             "/runbooks remove <name>",
+        ),
+    ),
+    SlashCommand(
+        "/skills",
+        "Publish skills and inspect the live skills release in use.",
+        _cmd_skills,
+        usage=(
+            "/skills status",
+            "/skills update",
+            "/skills push <name>",
+            "/skills rollback",
         ),
     ),
     SlashCommand(

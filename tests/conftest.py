@@ -177,6 +177,51 @@ def _isolate_ci_fix_counters() -> Iterator[None]:
 
 
 @pytest.fixture(autouse=True)
+def _reset_account_integrations_cache() -> Iterator[None]:
+    """Forget the remote-integrations snapshot without importing the module eagerly.
+
+    The cache is process-global with a TTL, so a test that fakes the webapp
+    response would otherwise serve its snapshot to every later test on the
+    same xdist worker.
+    """
+
+    def reset() -> None:
+        module = sys.modules.get("integrations.account_integrations")
+        if module is not None:
+            module.reset_account_integrations_cache()
+
+    reset()
+    try:
+        yield
+    finally:
+        reset()
+
+
+@pytest.fixture(autouse=True)
+def _reset_tool_prefetches() -> Iterator[None]:
+    """Forget prefetched scans and analyses without importing their tools eagerly.
+
+    The registries are process-global, so a prefetch one test started would
+    otherwise answer a later test's tool call on the same xdist worker.
+    """
+
+    def reset() -> None:
+        for name, reset_name in (
+            ("tools.system.workspace_git_scan.prefetch", "reset_scan_prefetch"),
+            ("integrations.github.tools.ci_analytics.prefetch", "reset_analysis_prefetch"),
+        ):
+            module = sys.modules.get(name)
+            if module is not None:
+                getattr(module, reset_name)()
+
+    reset()
+    try:
+        yield
+    finally:
+        reset()
+
+
+@pytest.fixture(autouse=True)
 def _reset_setup_state_cache() -> None:
     """Drop the memoized setup block between tests.
 
