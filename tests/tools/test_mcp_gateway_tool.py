@@ -86,9 +86,7 @@ def test_read_tool_only_available_with_certified_read_only_names() -> None:
 
 def test_gateway_host_withholds_only_mutating_mcp_calls() -> None:
     sources = _sources()
-    sources["_action_session"] = {
-        "available_capabilities": {MCP_GATEWAY_MUTATION_CAPABILITY: ()}
-    }
+    sources["_action_session"] = {"available_capabilities": {MCP_GATEWAY_MUTATION_CAPABILITY: ()}}
 
     assert list_mcp_gateway_tools.__opensre_registered_tool__.is_available(sources) is True
     assert call_mcp_gateway_read_tool.__opensre_registered_tool__.is_available(sources) is True
