@@ -181,7 +181,7 @@ def _write_curl_shim(
                   fi
                   auth_config="$(cat)"
                   if [ -n "${{OPENSRE_TEST_EXPECT_GITHUB_TOKEN:-}}" ] \
-                    && [ "$auth_config" = "header = \"Authorization: Bearer ${{OPENSRE_TEST_EXPECT_GITHUB_TOKEN}}\" " ]; then
+                    && [ "$auth_config" = "header = \"Authorization: Bearer ${{OPENSRE_TEST_EXPECT_GITHUB_TOKEN}}\""]; then
                     github_auth_seen=1
                   elif printf '%s' "$auth_config" | grep -q 'Authorization: Bearer '; then
                     echo "curl-shim: unexpected GitHub authorization config" >&2

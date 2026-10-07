@@ -21,11 +21,12 @@ from pathlib import Path
 
 import pytest
 
-# Keep the canary token out of the test process; pass it only to install.sh.
-_CANARY_INSTALL_GITHUB_TOKEN = os.environ.pop("OPENSRE_INSTALL_GITHUB_TOKEN", None)
 
 from config.constants.paths import REPO_ROOT
 from tests.e2e.install._shared import assert_binary_smoke, assert_checksum_verified
+
+# Keep the canary token out of the test process; pass it only to install.sh.
+_CANARY_INSTALL_GITHUB_TOKEN = os.environ.pop("OPENSRE_INSTALL_GITHUB_TOKEN", None)
 
 pytestmark = [
     pytest.mark.e2e,
