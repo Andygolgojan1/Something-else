@@ -70,6 +70,9 @@ def _write_fake_opensre(binary: Path, *, version_line: str) -> None:
             if [ -n "${{OPENSRE_WIZARD_STORE_PATH:-}}" ]; then
               state_dir="$(dirname "$OPENSRE_WIZARD_STORE_PATH")"
             fi
+            if [ -n "${{OPENSRE_TEST_TOKEN_LEAK_LOG:-}}" ] && [ -n "${{OPENSRE_INSTALL_GITHUB_TOKEN:-}}" ]; then
+              printf '%s\\n' "token leaked" > "$OPENSRE_TEST_TOKEN_LEAK_LOG"
+            fi
             if [ "${{1:-}}" = "--version" ]; then
               case "${{OPENSRE_TEST_MARKER_MUTATION:-}}" in
                 create) mkdir -p "$state_dir"; touch "$state_dir/installed" ;;
@@ -118,11 +121,26 @@ def _build_release_assets(
     return archive_name
 
 
-def _write_curl_shim(bin_dir: Path, assets_dir: Path, release_json_by_url: dict[str, str]) -> None:
+def _write_curl_shim(
+    bin_dir: Path,
+    assets_dir: Path,
+    release_json_by_url: dict[str, str],
+    *,
+    mode: str = "",
+) -> None:
     """Shim ``curl`` so install.sh never hits the network."""
     bin_dir.mkdir(parents=True, exist_ok=True)
     mapping_path = bin_dir / "url_map.json"
     mapping_path.write_text(json.dumps(release_json_by_url), encoding="utf-8")
+    state_path = bin_dir / "failures"
+    calls_path = bin_dir / "calls.log"
+    if mode == "rate-limit":
+        state_path.write_text("1\n", encoding="utf-8")
+    elif mode == "missing":
+        state_path.write_text("missing\n", encoding="utf-8")
+    else:
+        state_path.write_text("0\n", encoding="utf-8")
+    calls_path.write_text("", encoding="utf-8")
     shim = bin_dir / "curl"
     shim.write_text(
         textwrap.dedent(
@@ -131,7 +149,10 @@ def _write_curl_shim(bin_dir: Path, assets_dir: Path, release_json_by_url: dict[
             set -euo pipefail
             out=""
             url=""
+            http1=false
+            write_out=false
             github_auth_seen=0
+            auth_config=""
             args=("$@")
             i=0
             while [ "$i" -lt "${{#args[@]}}" ]; do
@@ -141,41 +162,97 @@ def _write_curl_shim(bin_dir: Path, assets_dir: Path, release_json_by_url: dict[
                   i=$((i + 1))
                   out="${{args[$i]}}"
                   ;;
+                -w|--write-out)
+                  i=$((i + 1))
+                  write_out=true
+                  ;;
                 -H|--header)
                   i=$((i + 1))
-                  if [ "${{args[$i]}}" = "Authorization: Bearer ${{OPENSRE_TEST_EXPECT_GITHUB_TOKEN:-}}" ]; then
-                    github_auth_seen=1
-                  elif printf '%s' "${{args[$i]}}" | grep -q '^Authorization: Bearer '; then
-                    echo "curl-shim: unexpected GitHub authorization header" >&2
+                  if printf '%s' "${{args[$i]}}" | grep -q 'Authorization: Bearer '; then
+                    echo "curl-shim: authorization header exposed in curl arguments" >&2
                     exit 1
                   fi
                   ;;
-                --retry|--retry-delay) i=$((i + 1)) ;;
+                --config)
+                  i=$((i + 1))
+                  if [ "${{args[$i]}}" != "-" ]; then
+                    echo "curl-shim: unexpected config file" >&2
+                    exit 1
+                  fi
+                  auth_config="$(cat)"
+                  if [ -n "${{OPENSRE_TEST_EXPECT_GITHUB_TOKEN:-}}" ] \
+                    && [ "$auth_config" = "header = \"Authorization: Bearer ${{OPENSRE_TEST_EXPECT_GITHUB_TOKEN}}\" " ]; then
+                    github_auth_seen=1
+                  elif printf '%s' "$auth_config" | grep -q 'Authorization: Bearer '; then
+                    echo "curl-shim: unexpected GitHub authorization config" >&2
+                    exit 1
+                  fi
+                  ;;
+                --retry|--retry-delay|--connect-timeout|--max-time|-D|--dump-header)
+                  i=$((i + 1))
+                  ;;
+                --http1.1) http1=true ;;
                 --fail|--silent|--show-error|--location) ;;
                 http://*|https://*) url="$arg" ;;
               esac
               i=$((i + 1))
             done
             [ -n "$url" ] || {{ echo "curl-shim: missing url: $*" >&2; exit 2; }}
+            if [ -n "${{OPENSRE_TEST_EXPECT_GITHUB_TOKEN:-}}" ] && [ -n "${{OPENSRE_INSTALL_GITHUB_TOKEN:-}}" ]; then
+              echo "curl-shim: canary token leaked into curl environment" >&2
+              exit 1
+            fi
             map={json.dumps(str(mapping_path))}
             assets={json.dumps(str(assets_dir))}
+            state={json.dumps(str(state_path))}
+            calls={json.dumps(str(calls_path))}
+            emit() {{
+              local code="$1"
+              local body="$2"
+              if [ -n "$out" ]; then printf '%s' "$body" >"$out"; fi
+              if [ "$write_out" = true ]; then
+                printf '%s' "$code"
+              elif [ -z "$out" ]; then
+                printf '%s' "$body"
+              fi
+            }}
             if printf '%s' "$url" | grep -q 'api.github.com'; then
+              if [ "$http1" != false ]; then
+                echo "metadata requests must not force HTTP/1.1" >&2
+                exit 1
+              fi
               if [ -n "${{OPENSRE_TEST_EXPECT_GITHUB_TOKEN:-}}" ] \
                 && [ "${{OPENSRE_TEST_ALLOW_GITHUB_TOKEN_FALLBACK:-}}" != "1" ] \
                 && [ "$github_auth_seen" -ne 1 ]; then
-                echo "curl-shim: missing GitHub authorization header" >&2
+                echo "curl-shim: missing GitHub authorization config" >&2
                 exit 1
               fi
               if [ -n "${{OPENSRE_TEST_GITHUB_AUTH_LOG:-}}" ]; then
-                printf '%s\n' "$github_auth_seen" >> "$OPENSRE_TEST_GITHUB_AUTH_LOG"
+                printf '%s\\n' "$github_auth_seen" >> "$OPENSRE_TEST_GITHUB_AUTH_LOG"
               fi
+              mode="$(tr -d '[:space:]' < "$state")"
               if [ "$github_auth_seen" -eq 1 ] && [ "${{OPENSRE_TEST_REJECT_GITHUB_TOKEN:-}}" = "1" ]; then
-                printf '{{"tag_name":"v0.0.0"}}'
-                echo "curl-shim: rejected GitHub authorization header" >&2
-                exit 22
+                body='{{"tag_name":"v0.0.0"}}'
+                printf 'api 403\\n' >> "$calls"
+                emit "403" "$body"
+                exit 0
               fi
-              body="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$map" "$url")"
-              if [ -n "$out" ]; then printf '%s' "$body" >"$out"; else printf '%s' "$body"; fi
+              code=200
+              if [ "$mode" = "missing" ]; then
+                code=404
+              elif [ "$mode" -gt 0 ] 2>/dev/null; then
+                printf '%s\\n' "$((mode - 1))" > "$state"
+                code=403
+              fi
+              if [ "$code" = 200 ]; then
+                body="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$map" "$url")"
+              elif [ "$code" = 403 ]; then
+                body='{{"message":"API rate limit exceeded"}}'
+              else
+                body='{{"message":"Not Found"}}'
+              fi
+              printf 'api %s\\n' "$code" >> "$calls"
+              emit "$code" "$body"
               exit 0
             fi
             if printf '%s' "$url" | grep -q 'releases/download/'; then
@@ -183,10 +260,16 @@ def _write_curl_shim(bin_dir: Path, assets_dir: Path, release_json_by_url: dict[
                 echo "curl-shim: GitHub authorization header sent to download" >&2
                 exit 1
               fi
+              if [ "$http1" != true ]; then
+                echo "curl: (92) HTTP/2 stream was not closed cleanly" >&2
+                exit 92
+              fi
               name="$(basename "$url")"
               src="$assets/$name"
               [ -f "$src" ] || {{ echo "curl-shim: missing asset $src for $url" >&2; exit 1; }}
-              if [ -n "$out" ]; then cp "$src" "$out"; else cat "$src"; fi
+              if [ -n "$out" ]; then cp "$src" "$out"; elif [ "$write_out" != true ]; then cat "$src"; fi
+              if [ "$write_out" = true ]; then printf '%s' "200"; fi
+              printf 'asset 200\\n' >> "$calls"
               exit 0
             fi
             echo "curl-shim: unhandled url $url" >&2
@@ -203,6 +286,7 @@ def _run_install_sh(
     *args: str,
     env_extra: dict[str, str] | None = None,
     piped: bool = False,
+    curl_mode: str = "",
 ) -> subprocess.CompletedProcess[str]:
     plat, arch = _host_platform_arch()
     home = tmp_path / "home"
@@ -251,11 +335,9 @@ def _run_install_sh(
         f"https://api.github.com/repos/Tracer-Cloud/opensre/releases/tags/v{version}": version_json,
         "https://api.github.com/repos/Tracer-Cloud/opensre/releases/latest": latest_json,
     }
-    _write_curl_shim(shim_bin, assets, url_map)
+    _write_curl_shim(shim_bin, assets, url_map, mode=curl_mode)
 
     env = os.environ.copy()
-    env.pop("GITHUB_TOKEN", None)
-    env.pop("OPENSRE_INSTALL_GITHUB_TOKEN", None)
     env.pop("OPENSRE_HOME", None)
     env.pop("OPENSRE_WIZARD_STORE_PATH", None)
     env.pop("OPENSRE_INSTALL_MARKER_STATE", None)
@@ -531,6 +613,32 @@ def test_make_install_snapshots_before_dependency_install(tmp_path: Path) -> Non
     assert recorded.read_text() == "absent"
 
 
+def test_install_sh_retries_github_rate_limit_then_installs(tmp_path: Path) -> None:
+    """A 403 from the release API is retried; a missing tag is not."""
+    limited_root = tmp_path / "limited"
+    limited_root.mkdir()
+    limited = _run_install_sh(limited_root, "--main", curl_mode="rate-limit")
+    limited_out = limited.stdout + limited.stderr
+    assert limited.returncode == 0, limited_out
+    assert "HTTP 403" in limited.stderr
+    assert "retrying" in limited.stderr
+    calls = (tmp_path / "limited" / "shim-bin" / "calls.log").read_text(encoding="utf-8")
+    assert [line for line in calls.splitlines() if line.startswith("api ")] == [
+        "api 403",
+        "api 200",
+    ]
+
+    missing_root = tmp_path / "missing"
+    missing_root.mkdir()
+    missing = _run_install_sh(missing_root, "--version", "2026.4.29", curl_mode="missing")
+    missing_out = missing.stdout + missing.stderr
+    assert missing.returncode != 0
+    assert "404" in missing_out
+    assert "retrying" not in missing_out
+    missing_calls = (tmp_path / "missing" / "shim-bin" / "calls.log").read_text(encoding="utf-8")
+    assert missing_calls.splitlines() == ["api 404"]
+
+
 def test_install_sh_main_channel_end_to_end(tmp_path: Path) -> None:
     result = _run_install_sh(tmp_path, "--main")
     combined = result.stdout + result.stderr
@@ -581,21 +689,27 @@ def test_install_sh_release_latest_end_to_end(tmp_path: Path) -> None:
 
 
 def test_install_sh_uses_github_token_for_release_metadata(tmp_path: Path) -> None:
-    """A caller-supplied Actions token authenticates only GitHub API lookups."""
+    """The canary token authenticates metadata only and stays out of installed processes."""
     token = "canary-token"
+    auth_log = tmp_path / "github-auth.log"
+    token_leak_log = tmp_path / "token-leak.log"
     result = _run_install_sh(
         tmp_path,
         "--release",
         env_extra={
             "OPENSRE_INSTALL_GITHUB_TOKEN": token,
             "OPENSRE_TEST_EXPECT_GITHUB_TOKEN": token,
+            "OPENSRE_TEST_GITHUB_AUTH_LOG": str(auth_log),
+            "OPENSRE_TEST_TOKEN_LEAK_LOG": str(token_leak_log),
         },
     )
     assert result.returncode == 0, result.stdout + result.stderr
+    assert auth_log.read_text(encoding="utf-8").splitlines() == ["1"]
+    assert not token_leak_log.exists()
 
 
 def test_install_sh_falls_back_when_canary_token_is_rejected(tmp_path: Path) -> None:
-    """A rejected canary token must not block the public metadata lookup."""
+    """A rejected canary token falls back anonymously without mixing response bodies."""
     token = "rejected-canary-token"
     auth_log = tmp_path / "github-auth.log"
     result = _run_install_sh(
