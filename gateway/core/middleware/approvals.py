@@ -15,6 +15,7 @@ Kit in ``gateway.transports.slack.delivery.approvals``, message components in
 
 from __future__ import annotations
 
+import json
 import threading
 import uuid
 from collections.abc import Mapping
@@ -23,12 +24,7 @@ from typing import Any, Protocol
 
 from config.constants.tooling import ToolBlockedBy
 from core.tool import BeforeToolCallResult, ToolExecutionHooks, ToolExecutionRequest
-from gateway.core.attachments.inline import scrub_secrets
 from gateway.core.storage.security_audit import audit_security_action
-from infrastructure.observability.trace.approval_preview import (
-    ApprovalPreview,
-    format_approval_preview,
-)
 
 APPROVE_ACTION_ID = "opensre_approval_approve"
 DENY_ACTION_ID = "opensre_approval_deny"
@@ -47,7 +43,6 @@ class _PendingApproval:
     decided_by: str = ""
     platform: str = ""
     chat_id: str = ""
-    approver_id: str = ""
 
 
 class ApprovalBroker:
@@ -63,14 +58,12 @@ class ApprovalBroker:
         *,
         platform: str | None = None,
         chat_id: str | None = None,
-        approver_id: str = "",
     ) -> str:
         approval_id = uuid.uuid4().hex
         with self._lock:
             self._pending[approval_id] = _PendingApproval(
                 platform=platform or "",
                 chat_id=chat_id or "",
-                approver_id=approver_id,
             )
         audit_security_action(
             action="approval.create",
@@ -87,12 +80,6 @@ class ApprovalBroker:
         with self._lock:
             pending = self._pending.get(approval_id)
             if pending is None or pending.event.is_set():
-                return False
-            if (
-                pending.approver_id
-                and decided_by != pending.approver_id
-                and (approved or decided_by)
-            ):
                 return False
             pending.approved = approved
             pending.decided_by = decided_by
@@ -163,7 +150,7 @@ class ApprovalPrompter(Protocol):
         arguments: Mapping[str, Any],
         expiry_seconds: float,
     ) -> tuple[bool, str]:
-        """Publish complete redacted arguments before accepting an approval decision."""
+        """Return (approved, id of the member who decided; empty when expired)."""
 
 
 def approval_tool_hooks(prompter: ApprovalPrompter) -> ToolExecutionHooks:
@@ -173,9 +160,6 @@ def approval_tool_hooks(prompter: ApprovalPrompter) -> ToolExecutionHooks:
         tool = request.tool
         if not bool(getattr(tool, "requires_approval", False)):
             return None
-        preview = approval_arguments_preview(request.arguments)
-        if not preview.fields_visible:
-            return BeforeToolCallResult(blocked=True, reason=preview.text)
         approved, decided_by = prompter.request(
             tool_name=request.tool_call.name,
             reason=str(getattr(tool, "approval_reason", "") or ""),
@@ -198,31 +182,31 @@ def approval_tool_hooks(prompter: ApprovalPrompter) -> ToolExecutionHooks:
     return ToolExecutionHooks(before_tool_call=before_tool_call)
 
 
-def approval_arguments_preview(arguments: Mapping[str, Any]) -> ApprovalPreview:
-    """Redact and compact values while retaining every field needed for approval."""
-    if not arguments:
-        return ApprovalPreview("", fields_visible=True)
-    return format_approval_preview(
-        dict(arguments), max_chars=ARGS_PREVIEW_LIMIT, scrub_text=scrub_secrets
-    )
-
-
 def arguments_preview(arguments: Mapping[str, Any]) -> str:
-    """Render a bounded, redacted argument preview for multi-member chat prompts."""
-    return approval_arguments_preview(arguments).text
+    """Render tool arguments for a chat approval prompt.
 
+    Approval prompts land in multi-member channels (Buzz rooms, Slack
+    channels, Discord). Values must be redacted before serialization so a
+    bystander cannot read credentials, tokens, or other secrets that the
+    tool call carried — even when only the requester can click/reply to
+    approve.
+    """
+    if not arguments:
+        return ""
+    # Key-name redaction first (api_key, token, password, …), then pattern
+    # scrub on the serialized form for secrets that ride under neutral keys.
+    from gateway.core.attachments.inline import scrub_secrets
+    from infrastructure.observability.trace.redaction import redact_sensitive
 
-def approval_review_pages(preview: ApprovalPreview, *, review_id: str) -> list[str]:
-    """Complete evidence in bounded pages, to publish before approval controls."""
-    if not preview.truncated:
-        return []
-    # ASCII JSON makes platform character limits predictable and escapes control
-    # characters. Never use the assistant-output splitters, which drop whitespace.
-    chunks = [preview.full_text[i : i + 1500] for i in range(0, len(preview.full_text), 1500)]
-    return [
-        f"Complete redacted arguments {review_id} ({i}/{len(chunks)}):\n```\n{chunk}\n```"
-        for i, chunk in enumerate(chunks, 1)
-    ]
+    safe = redact_sensitive(dict(arguments))
+    try:
+        preview = json.dumps(safe, ensure_ascii=False, default=str)
+    except Exception:
+        preview = str(safe)
+    preview = scrub_secrets(preview)
+    if len(preview) > ARGS_PREVIEW_LIMIT:
+        preview = preview[: ARGS_PREVIEW_LIMIT - 1] + "…"
+    return preview
 
 
 __all__ = [
@@ -232,8 +216,6 @@ __all__ = [
     "MAX_APPROVAL_WAIT_SECONDS",
     "ApprovalBroker",
     "ApprovalPrompter",
-    "approval_arguments_preview",
-    "approval_review_pages",
     "approval_tool_hooks",
     "arguments_preview",
 ]

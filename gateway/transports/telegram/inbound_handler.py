@@ -110,7 +110,6 @@ async def handle_polled_inbound_telegram_message(
                         client=client,
                         broker=approvals,
                         chat_id=event.chat_id,
-                        requester_id=event.user_id,
                     )
                 ),
             )

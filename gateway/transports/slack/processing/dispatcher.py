@@ -249,7 +249,6 @@ class SlackTurnDispatcher:
                 broker=self._approvals,
                 channel_id=inbound.channel_id,
                 thread_ts=inbound.thread_ts,
-                requester_id=inbound.user_id,
             )
             output = SlackTurnOutput(
                 client=self._messaging,

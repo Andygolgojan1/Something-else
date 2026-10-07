@@ -8,7 +8,6 @@ message components on the prompt, and click routing back to the broker.
 from __future__ import annotations
 
 import logging
-import uuid
 from collections.abc import Mapping
 from typing import Any
 
@@ -19,15 +18,9 @@ from gateway.core.middleware.approvals import (
     DENY_ACTION_ID,
     MAX_APPROVAL_WAIT_SECONDS,
     ApprovalBroker,
-    approval_arguments_preview,
-    approval_review_pages,
+    arguments_preview,
 )
-from gateway.transports.discord.client import (
-    create_dm_channel,
-    edit_message,
-    send_message,
-    send_message_with_components,
-)
+from gateway.transports.discord.client import edit_message, send_message_with_components
 
 logger = logging.getLogger("gateway")
 
@@ -41,12 +34,10 @@ class DiscordApprovalPrompter:
         broker: ApprovalBroker,
         bot_token: str,
         channel_id: str,
-        requester_id: str = "",
     ) -> None:
         self._broker = broker
         self._bot_token = bot_token
         self._channel_id = channel_id
-        self._requester_id = requester_id
 
     def request(
         self,
@@ -56,46 +47,20 @@ class DiscordApprovalPrompter:
         arguments: Mapping[str, Any],
         expiry_seconds: float,
     ) -> tuple[bool, str]:
-        preview = approval_arguments_preview(arguments)
-        if not preview.fields_visible:
-            return (False, "")
-        review_id = uuid.uuid4().hex
-        review_channel = self._channel_id
-        if preview.truncated:
-            if not self._requester_id:
-                return (False, "")
-            private_channel = create_dm_channel(
-                user_id=self._requester_id, bot_token=self._bot_token
-            )
-            if private_channel is None:
-                return (False, "")
-            review_channel = private_channel
-        for page in approval_review_pages(preview, review_id=review_id):
-            if (
-                send_message(
-                    channel_id=review_channel,
-                    content=page,
-                    bot_token=self._bot_token,
-                )
-                is None
-            ):
-                return (False, "")
         approval_id = self._broker.create(
             platform="discord",
             chat_id=self._channel_id,
-            approver_id=self._requester_id if preview.truncated else "",
         )
-        body = f"**Approval needed — `{tool_name[:200]}`**"
+        preview = arguments_preview(arguments)
+        body = f"**Approval needed — `{tool_name}`**"
         if reason.strip():
-            body += f"\n{reason.strip()[:500]}"
-        if preview.text and not preview.truncated:
-            body += f"\n```\n{preview.text}\n```"
-        if preview.truncated:
-            body += f"\nComplete arguments sent privately; review {review_id} before approving."
+            body += f"\n{reason.strip()}"
+        if preview:
+            body += f"\n```\n{preview}\n```"
         components = _approval_components(approval_id)
         message_id = send_message_with_components(
             channel_id=self._channel_id,
-            content=body,
+            content=body[:2000],
             components=components,
             bot_token=self._bot_token,
         )

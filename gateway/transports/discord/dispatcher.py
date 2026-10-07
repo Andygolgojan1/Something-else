@@ -219,7 +219,6 @@ class DiscordTurnDispatcher:
                         broker=self._approvals,
                         bot_token=self._bot_token,
                         channel_id=inbound.channel_id,
-                        requester_id=inbound.user_id,
                     )
                 ),
             )

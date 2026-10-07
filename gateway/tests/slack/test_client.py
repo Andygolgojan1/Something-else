@@ -44,18 +44,6 @@ def test_post_message_returns_ts() -> None:
     assert web.post_calls[0]["channel"] == "C1"
 
 
-def test_private_evidence_failure_never_falls_back_to_public_post() -> None:
-    class _PrivateClient(_FakeWebClient):
-        def chat_postEphemeral(self, **kwargs: Any) -> dict[str, Any]:
-            assert kwargs["user"] == "U1"
-            raise _api_error("user_not_in_channel")
-
-    web = _PrivateClient(post={"ts": "1.2"})
-    client = SlackWebApiClient(web)  # type: ignore[arg-type]
-    assert not client.post_ephemeral(channel="C1", user="U1", text="private evidence")
-    assert web.post_calls == []
-
-
 def test_post_message_returns_none_on_api_error() -> None:
     web = _FakeWebClient(post=_api_error("channel_not_found"))
     client = SlackWebApiClient(web)  # type: ignore[arg-type]

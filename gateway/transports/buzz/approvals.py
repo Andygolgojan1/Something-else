@@ -22,7 +22,7 @@ from typing import Any
 from gateway.core.middleware.approvals import (
     MAX_APPROVAL_WAIT_SECONDS,
     ApprovalBroker,
-    approval_arguments_preview,
+    arguments_preview,
 )
 from gateway.transports.buzz.pending_approvals import PendingApprovals
 from integrations.buzz import BuzzClient
@@ -56,22 +56,13 @@ class BuzzApprovalPrompter:
         arguments: Mapping[str, Any],
         expiry_seconds: float,
     ) -> tuple[bool, str]:
-        preview = approval_arguments_preview(arguments)
-        if not preview.fields_visible:
-            return (False, "")
-        if preview.truncated:
-            # Buzz's current client has no private delivery capability.
-            self._client.send_message(
-                channel=self._channel_id,
-                content="Complete arguments need private review. Use the shell or a hosted prompt.",
-            )
-            return (False, "")
         approval_id = self._broker.create(platform="buzz", chat_id=self._channel_id)
-        body = f"**Approval needed — `{tool_name[:200]}`**"
+        preview = arguments_preview(arguments)
+        body = f"**Approval needed — `{tool_name}`**"
         if reason.strip():
-            body += f"\n{reason.strip()[:500]}"
-        if preview.text:
-            body += f"\n```\n{preview.text}\n```"
+            body += f"\n{reason.strip()}"
+        if preview:
+            body += f"\n```\n{preview}\n```"
         body += (
             f"\n\n`{self._requester_pubkey[:8]}…` — reply **approve** or **deny** "
             "to this message. Only you can answer it."

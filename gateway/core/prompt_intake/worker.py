@@ -34,7 +34,7 @@ from core.tool import (
     ToolExecutionResult,
 )
 from gateway.core.billing.turn_metering import bound_turn_metering
-from gateway.core.middleware.approvals import approval_arguments_preview
+from gateway.core.middleware.approvals import arguments_preview
 from gateway.core.prompt_intake.jobs import (
     ERROR_CANCELLED,
     ERROR_CONVERSATION_WAITING,
@@ -431,9 +431,6 @@ class _Approvals:
         tool = request.tool
         if not bool(getattr(tool, "requires_approval", False)):
             return None
-        preview = approval_arguments_preview(request.arguments)
-        if not preview.fields_visible:
-            return BeforeToolCallResult(blocked=True, reason=preview.text)
         name = request.tool_call.name
         schema = getattr(tool, "input_schema", None)
         key = invocation_key(name, request.arguments, schema=schema)
@@ -449,8 +446,9 @@ class _Approvals:
                 metadata={ToolBlockedBy.MENU_PENDING: True},
             )
         reason = str(getattr(tool, "approval_reason", "") or "")
+        preview = arguments_preview(request.arguments)
         self._session.pending_user_choice = approval_question(
-            name, request.arguments, reason, preview.full_text, schema=schema
+            name, request.arguments, reason, preview, schema=schema
         )
         return BeforeToolCallResult(
             blocked=True,

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from config.constants.capabilities import MCP_GATEWAY_MUTATION_CAPABILITY
+from core.agent_harness.tools import capability_available_from_sources
 from core.domain.types.tools import ToolSurface
 from core.tool import ERROR_KIND_REFUSED, SideEffectLevel, report_run_error
 from core.tool_framework import tool
@@ -42,6 +44,12 @@ def _available(sources: dict[str, dict]) -> bool:
 def _read_tool_available(sources: dict[str, dict]) -> bool:
     raw = _source(sources)
     return bool(raw.get("connection_verified") and raw.get("read_only_tools"))
+
+
+def _mutation_tool_available(sources: dict[str, dict]) -> bool:
+    return _available(sources) and capability_available_from_sources(
+        sources, MCP_GATEWAY_MUTATION_CAPABILITY
+    )
 
 
 def _extract_client(sources: dict[str, dict]) -> dict[str, object]:
@@ -300,7 +308,7 @@ def call_mcp_gateway_read_tool(
     approval_reason="The selected MCP gateway tool may mutate an external system.",
     input_schema=_CALL_SCHEMA,
     injected_params=_INJECTED_PARAMS,
-    is_available=_available,
+    is_available=_mutation_tool_available,
     extract_params=_extract_client,
 )
 def call_mcp_gateway_tool(

@@ -20,22 +20,6 @@ def _auth_headers(bot_token: str) -> dict[str, str]:
     return {"Authorization": f"Bot {bot_token}"}
 
 
-def create_dm_channel(*, user_id: str, bot_token: str) -> str | None:
-    """Open a private channel for the member requesting approval."""
-    try:
-        response = httpx.post(
-            f"{DISCORD_API_BASE}/users/@me/channels",
-            json={"recipient_id": user_id},
-            headers=_auth_headers(bot_token),
-            timeout=15.0,
-        )
-    except httpx.HTTPError:
-        return None
-    if response.status_code != HTTPStatus.OK:
-        return None
-    return str(response.json().get("id") or "") or None
-
-
 def send_message(
     *,
     channel_id: str,

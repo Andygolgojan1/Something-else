@@ -7,9 +7,13 @@ SCHEDULER_HOST_IN_PROCESS = "in_process"
 #: Tools that call the OpenSRE app with this machine's account token. An empty
 #: value means the host has no such sign-in, so those tools stay off the turn.
 HOSTED_GATEWAY_CAPABILITY = "hosted_gateway"
+#: Mutation-capable calls through the generic MCP integration. Gateway chat
+#: hosts withhold this while local interactive sessions leave it available.
+MCP_GATEWAY_MUTATION_CAPABILITY = "mcp_gateway_mutation"
 
 __all__ = [
     "HOSTED_GATEWAY_CAPABILITY",
+    "MCP_GATEWAY_MUTATION_CAPABILITY",
     "SCHEDULER_HOST_CAPABILITY",
     "SCHEDULER_HOST_IN_PROCESS",
 ]
