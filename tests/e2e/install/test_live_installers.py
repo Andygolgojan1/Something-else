@@ -21,7 +21,6 @@ from pathlib import Path
 
 import pytest
 
-
 from config.constants.paths import REPO_ROOT
 from tests.e2e.install._shared import assert_binary_smoke, assert_checksum_verified
 
