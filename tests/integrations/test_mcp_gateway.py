@@ -42,6 +42,11 @@ class TestMcpGatewayConfig:
     def test_accepts_loopback_http(self) -> None:
         assert McpGatewayConfig(url="http://127.0.0.1:8765/mcp").is_configured is True
 
+    def test_url_normalization_preserves_query_value_trailing_slashes(self) -> None:
+        config = McpGatewayConfig(url="https://mcp.example.test/mcp/?route=/api/")
+
+        assert config.url == "https://mcp.example.test/mcp?route=/api/"
+
     def test_rejects_non_loopback_http(self) -> None:
         with pytest.raises(ValidationError, match="must use https"):
             McpGatewayConfig(url="http://mcp.example.test/mcp")

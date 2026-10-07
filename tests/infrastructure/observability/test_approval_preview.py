@@ -77,3 +77,13 @@ def test_complete_review_masks_url_userinfo_and_basic_auth_diagnostics() -> None
     assert "opaque-password" not in preview.full_text
     assert "dXNlcjpwYXNzd29yZA==" not in preview.full_text
     assert "https://example.test/mcp?email=user@example.test" in preview.full_text
+
+
+def test_complete_review_masks_credentials_embedded_under_neutral_keys() -> None:
+    preview = format_approval_preview(
+        {"header": "xapp-AAAAAAAAAAAAAAAAAAAA", "query": "api_key=secret123"},
+        max_chars=400,
+    )
+
+    assert "xapp-AAAAAAAAAAAAAAAAAAAA" not in preview.full_text
+    assert "secret123" not in preview.full_text

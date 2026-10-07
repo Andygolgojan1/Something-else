@@ -152,6 +152,36 @@ def test_shared_client_rejects_repeated_tool_cursor(monkeypatch: pytest.MonkeyPa
         mcp_client.list_mcp_tools(_Config(), **_session_options())
 
 
+def test_shared_client_bounds_accumulated_tool_discovery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class OversizedSession(_Session):
+        async def list_tools(
+            self, *, params: types.PaginatedRequestParams | None = None
+        ) -> _ListToolsResult:
+            del params
+            return _ListToolsResult(
+                tools=[
+                    types.Tool(
+                        name="large",
+                        description="x" * 200,
+                        input_schema={},
+                    )
+                ],
+                next_cursor="another-page",
+            )
+
+    @asynccontextmanager
+    async def open_session(*_args: object, **_kwargs: object) -> AsyncIterator[OversizedSession]:
+        yield OversizedSession()
+
+    monkeypatch.setattr(mcp_client, "open_mcp_session", open_session)
+    monkeypatch.setattr(mcp_client, "MCP_TOOL_LIST_MAX_SERIALIZED_CHARS", 100)
+
+    with pytest.raises(RuntimeError, match="serialized-size safety limit"):
+        mcp_client.list_mcp_tools(_Config(), **_session_options())
+
+
 def test_shared_client_keeps_vendor_timeout_copy_for_chained_timeout() -> None:
     outer = RuntimeError("request failed")
     outer.__cause__ = TimeoutError()

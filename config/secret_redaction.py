@@ -36,6 +36,7 @@ def _build_default_rules() -> tuple[RedactionRule, ...]:
             "[REDACTED:openai_key]",
         ),
         ("slack_token", r"xox[bopas]-[A-Za-z0-9-]{10,}", "[REDACTED:slack_token]"),
+        ("slack_app_token", r"xapp-[A-Za-z0-9-]{10,}", "[REDACTED:slack_app_token]"),
         ("stripe_key", r"sk_(?:live|test)_[A-Za-z0-9]{24,}", "[REDACTED:stripe_key]"),
         (
             "url_credentials",
@@ -59,6 +60,14 @@ def _build_default_rules() -> tuple[RedactionRule, ...]:
             "[REDACTED:jwt]",
         ),
         ("password_arg", r"(?i)(--password=|password=)\S+", "[REDACTED:password]"),
+        (
+            "inline_credential",
+            r"(?i)\b((?:api[_-]?key|access[_-]?token|token|secret|password|passwd|passphrase|"
+            r"credential|authorization|auth[_-]?header|private[_-]?key|signing[_-]?key|"
+            r"seed[_-]?phrase|mnemonic)\s*[:=]\s*)(?!(?:bearer|basic)\b|\[REDACTED\])"
+            r"[^\s,;]+",
+            r"\1[REDACTED]",
+        ),
         (
             "private_key",
             r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----",

@@ -17,6 +17,8 @@ from config.constants.mcp import (
     MCP_TERMINAL_DUMB_VALUE,
     MCP_TERMINAL_ENV,
     MCP_TOOL_LIST_MAX_PAGES,
+    MCP_TOOL_LIST_MAX_SERIALIZED_CHARS,
+    MCP_TOOL_LIST_MAX_TOOLS,
 )
 from integrations.mcp_streamable_http_compat import streamable_http_client
 from integrations.mcp_transport import McpTransportMode
@@ -218,12 +220,23 @@ async def _list_tools_async(
 ) -> list[types.Tool]:
     async with open_mcp_session(config, **session_options) as session:
         tools: list[types.Tool] = []
+        serialized_chars = 0
         cursor: str | None = None
         seen_cursors: set[str] = set()
         for _ in range(MCP_TOOL_LIST_MAX_PAGES):
             params = types.PaginatedRequestParams(cursor=cursor) if cursor is not None else None
             page = await session.list_tools(params=params)
-            tools.extend(page.tools)
+            for tool in page.tools:
+                if len(tools) >= MCP_TOOL_LIST_MAX_TOOLS:
+                    raise RuntimeError(
+                        "MCP tool listing exceeded the cumulative tool-count safety limit"
+                    )
+                serialized_chars += len(tool.model_dump_json())
+                if serialized_chars > MCP_TOOL_LIST_MAX_SERIALIZED_CHARS:
+                    raise RuntimeError(
+                        "MCP tool listing exceeded the cumulative serialized-size safety limit"
+                    )
+                tools.append(tool)
             cursor = page.next_cursor
             if cursor is None:
                 return tools
