@@ -21,6 +21,7 @@ from pathlib import Path
 
 import pytest
 
+from config.constants.github import GITHUB_TOKEN_ENV
 from config.constants.paths import REPO_ROOT
 
 pytestmark = pytest.mark.skipif(
@@ -70,7 +71,7 @@ def _write_fake_opensre(binary: Path, *, version_line: str) -> None:
             if [ -n "${{OPENSRE_WIZARD_STORE_PATH:-}}" ]; then
               state_dir="$(dirname "$OPENSRE_WIZARD_STORE_PATH")"
             fi
-            if [ -n "${{OPENSRE_TEST_TOKEN_LEAK_LOG:-}}" ] && [ -n "${{OPENSRE_INSTALL_GITHUB_TOKEN:-}}" ]; then
+            if [ -n "${{OPENSRE_TEST_TOKEN_LEAK_LOG:-}}" ] && [ -n "${{{GITHUB_TOKEN_ENV}:-}}" ]; then
               printf '%s\\n' "token leaked" > "$OPENSRE_TEST_TOKEN_LEAK_LOG"
             fi
             if [ "${{1:-}}" = "--version" ]; then
@@ -198,7 +199,7 @@ def _write_curl_shim(
               i=$((i + 1))
             done
             [ -n "$url" ] || {{ echo "curl-shim: missing url: $*" >&2; exit 2; }}
-            if [ -n "${{OPENSRE_TEST_EXPECT_GITHUB_TOKEN:-}}" ] && [ -n "${{OPENSRE_INSTALL_GITHUB_TOKEN:-}}" ]; then
+            if [ -n "${{OPENSRE_TEST_EXPECT_GITHUB_TOKEN:-}}" ] && [ -n "${{{GITHUB_TOKEN_ENV}:-}}" ]; then
               echo "curl-shim: canary token leaked into curl environment" >&2
               exit 1
             fi
@@ -480,7 +481,7 @@ def test_install_sh_source_exposes_env_knobs() -> None:
         "OPENSRE_INSTALL_DIR",
         "OPENSRE_VERSION",
         "OPENSRE_MAIN_RELEASE_TAG",
-        "OPENSRE_INSTALL_GITHUB_TOKEN",
+        GITHUB_TOKEN_ENV,
         "OPENSRE_INSTALL_VERBOSE",
         "OPENSRE_INSTALL_REPO",
         'INSTALL_CHANNEL="${OPENSRE_INSTALL_CHANNEL:-main}"',
@@ -697,7 +698,7 @@ def test_install_sh_uses_github_token_for_release_metadata(tmp_path: Path) -> No
         tmp_path,
         "--release",
         env_extra={
-            "OPENSRE_INSTALL_GITHUB_TOKEN": token,
+            GITHUB_TOKEN_ENV: token,
             "OPENSRE_TEST_EXPECT_GITHUB_TOKEN": token,
             "OPENSRE_TEST_GITHUB_AUTH_LOG": str(auth_log),
             "OPENSRE_TEST_TOKEN_LEAK_LOG": str(token_leak_log),
@@ -716,7 +717,7 @@ def test_install_sh_falls_back_when_canary_token_is_rejected(tmp_path: Path) -> 
         tmp_path,
         "--release",
         env_extra={
-            "OPENSRE_INSTALL_GITHUB_TOKEN": token,
+            GITHUB_TOKEN_ENV: token,
             "OPENSRE_TEST_EXPECT_GITHUB_TOKEN": token,
             "OPENSRE_TEST_ALLOW_GITHUB_TOKEN_FALLBACK": "1",
             "OPENSRE_TEST_REJECT_GITHUB_TOKEN": "1",

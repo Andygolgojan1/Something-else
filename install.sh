@@ -414,10 +414,10 @@ download_to() {
 
 download_text() {
   local url="$1"
-  local github_token="${OPENSRE_INSTALL_GITHUB_TOKEN:-}"
+  local github_token="${GITHUB_TOKEN:-}"
 
   # Keep the canary token out of later downloads and the installed process.
-  unset OPENSRE_INSTALL_GITHUB_TOKEN
+  unset GITHUB_TOKEN
 
   if [ -n "$github_token" ]; then
     local authenticated_response
