@@ -48,7 +48,9 @@ def _read_tool_available(sources: dict[str, dict]) -> bool:
 
 def _mutation_tool_available(sources: dict[str, dict]) -> bool:
     return _available(sources) and capability_available_from_sources(
-        sources, MCP_GATEWAY_MUTATION_CAPABILITY
+        sources,
+        MCP_GATEWAY_MUTATION_CAPABILITY,
+        require_explicit=True,
     )
 
 

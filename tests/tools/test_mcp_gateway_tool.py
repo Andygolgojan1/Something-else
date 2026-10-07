@@ -6,7 +6,10 @@ from unittest.mock import MagicMock, patch
 
 import mcp_types as types
 
-from config.constants.capabilities import MCP_GATEWAY_MUTATION_CAPABILITY
+from config.constants.capabilities import (
+    MCP_GATEWAY_MUTATION_CAPABILITY,
+    MCP_GATEWAY_MUTATION_TOOL,
+)
 from core.tool import ERROR_KIND_REFUSED, SideEffectLevel
 from integrations.mcp_gateway import (
     McpGatewayClient,
@@ -91,6 +94,18 @@ def test_gateway_host_withholds_only_mutating_mcp_calls() -> None:
     assert list_mcp_gateway_tools.__opensre_registered_tool__.is_available(sources) is True
     assert call_mcp_gateway_read_tool.__opensre_registered_tool__.is_available(sources) is True
     assert call_mcp_gateway_tool.__opensre_registered_tool__.is_available(sources) is False
+
+
+def test_mutating_mcp_calls_require_an_explicit_host_capability() -> None:
+    registered = call_mcp_gateway_tool.__opensre_registered_tool__
+    sources = _sources()
+
+    assert registered.is_available(sources) is False
+
+    sources["_action_session"] = {
+        "available_capabilities": {MCP_GATEWAY_MUTATION_CAPABILITY: (MCP_GATEWAY_MUTATION_TOOL,)}
+    }
+    assert registered.is_available(sources) is True
 
 
 def test_extract_params_injects_client_without_exposing_raw_secret() -> None:

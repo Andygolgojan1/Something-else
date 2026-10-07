@@ -8,12 +8,14 @@ SCHEDULER_HOST_IN_PROCESS = "in_process"
 #: value means the host has no such sign-in, so those tools stay off the turn.
 HOSTED_GATEWAY_CAPABILITY = "hosted_gateway"
 #: Mutation-capable calls through the generic MCP integration. Gateway chat
-#: hosts withhold this while local interactive sessions leave it available.
+#: hosts omit this while local interactive sessions grant the mutation tool.
 MCP_GATEWAY_MUTATION_CAPABILITY = "mcp_gateway_mutation"
+MCP_GATEWAY_MUTATION_TOOL = "call_mcp_gateway_tool"
 
 __all__ = [
     "HOSTED_GATEWAY_CAPABILITY",
     "MCP_GATEWAY_MUTATION_CAPABILITY",
+    "MCP_GATEWAY_MUTATION_TOOL",
     "SCHEDULER_HOST_CAPABILITY",
     "SCHEDULER_HOST_IN_PROCESS",
 ]
