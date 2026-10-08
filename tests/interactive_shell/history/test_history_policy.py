@@ -40,6 +40,7 @@ from surfaces.interactive_shell.prompt_history.policy import (
             "[REDACTED:jwt]",
         ),
         ("psql --password=hunter2 -h db", "[REDACTED:password]"),
+        ('token="abc123"', "[REDACTED]"),
         (
             "-----BEGIN RSA PRIVATE KEY-----\nMIIEvQIBADANBgkq\n-----END RSA PRIVATE KEY-----",
             "[REDACTED:private_key]",
