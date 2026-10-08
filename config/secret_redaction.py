@@ -29,6 +29,7 @@ def _build_default_rules() -> tuple[RedactionRule, ...]:
         ),
         ("github_pat_classic", r"ghp_[A-Za-z0-9]{36}", "[REDACTED:github_pat]"),
         ("github_pat_fine", r"github_pat_[A-Za-z0-9_]{82}", "[REDACTED:github_pat]"),
+        ("gitlab_pat", r"glpat-[A-Za-z0-9_-]{20,}", "[REDACTED:gitlab_pat]"),
         ("anthropic_key", r"sk-ant-[A-Za-z0-9_\-]{40,}", "[REDACTED:anthropic_key]"),
         (
             "openai_key",

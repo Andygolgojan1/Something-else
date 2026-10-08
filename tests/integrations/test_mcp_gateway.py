@@ -158,6 +158,22 @@ def test_oversized_mutation_response_reports_unknown_outcome() -> None:
         McpGatewayClient(config).call_tool("restart_service")
 
 
+def test_disconnected_mutation_reports_unknown_outcome() -> None:
+    config = McpGatewayConfig(url="https://mcp.example.test/mcp")
+    with (
+        patch(
+            "integrations.mcp_gateway.client.list_mcp_tools",
+            return_value=[types.Tool(name="restart_service", input_schema={})],
+        ),
+        patch(
+            "integrations.mcp_gateway.client.call_mcp_tool",
+            side_effect=httpx.ReadError("connection reset"),
+        ),
+        pytest.raises(McpGatewayRequestError, match="outcome is unknown.*Do not retry"),
+    ):
+        McpGatewayClient(config).call_tool("restart_service")
+
+
 def test_client_reports_the_effective_timeout() -> None:
     config = McpGatewayConfig(
         url="https://mcp.example.test/mcp",
@@ -336,6 +352,28 @@ def test_successful_payloads_scrub_the_configured_token() -> None:
     assert token not in repr(result)
     assert result["structured_content"] == {"items": [{"[redacted]": "[redacted]"}], "count": 1}
     assert token in repr(response)
+
+
+def test_successful_payloads_redact_unconfigured_gitlab_tokens() -> None:
+    token = "glpat-" + "A" * 32
+    config = McpGatewayConfig(url="https://mcp.example.test/mcp")
+    response = {
+        "is_error": False,
+        "tool": "status",
+        "arguments": {},
+        "structured_content": {"header": token},
+        "content": [],
+    }
+    with (
+        patch(
+            "integrations.mcp_gateway.client.list_mcp_tools",
+            return_value=[types.Tool(name="status", input_schema={})],
+        ),
+        patch("integrations.mcp_gateway.client.call_mcp_tool", return_value=response),
+    ):
+        result = McpGatewayClient(config).call_tool("status")
+
+    assert token not in repr(result)
 
 
 def test_alias_collision_cannot_select_another_advertised_tool() -> None:

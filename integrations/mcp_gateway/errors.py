@@ -100,6 +100,12 @@ def describe_mcp_gateway_error(
 
     if any(isinstance(item, (httpx.ConnectError, httpx.ConnectTimeout)) for item in nested):
         return f"Could not reach the MCP gateway. Check {MCP_GATEWAY_URL_ENV} and network access."
+    if mutation_outcome_unknown:
+        return (
+            "The MCP gateway tool may have completed, but its response was not received, "
+            "so the outcome is unknown. Do not retry a mutation automatically; "
+            "verify the remote system first."
+        )
     if any(isinstance(item, TimeoutError) for item in nested):
         return f"MCP gateway operation timed out after {timeout_seconds:g} seconds."
     if any("server returned an error response" in str(item).lower() for item in nested):
