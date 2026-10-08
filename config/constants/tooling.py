@@ -31,6 +31,7 @@ class ToolBlockedBy(StrEnum):
     APPROVAL_DECLINED = "approval_declined"
     APPROVAL_PENDING = "approval_pending"
     HOOK_EXCEPTION = "hook_exception"
+    TOOL_POLICY = "tool_policy"
 
 
 class ToolSkippedBy(StrEnum):

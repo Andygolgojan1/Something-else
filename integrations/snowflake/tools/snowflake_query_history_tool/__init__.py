@@ -2,18 +2,28 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import httpx
 
 from core.domain.types.evidence import record_evidence_entry
 from core.domain.types.tools import ToolSurface
-from core.tool import report_run_error
+from core.tool import SideEffectLevel, report_run_error
 from core.tool_framework import tool
 from core.tool_framework.utils import tool_unavailable
 
 _DEFAULT_MAX_RESULTS = 50
 _MAX_HARD_LIMIT = 200
+_READ_STATEMENT_PREFIXES = ("select", "with", "show", "describe", "desc", "explain")
+_WRITE_KEYWORDS = re.compile(
+    r"\b(insert|update|delete|merge|upsert|create|alter|drop|truncate|grant|revoke|"
+    r"copy|put|remove|call|execute|undrop|use|begin|commit|rollback)\b"
+)
+_SQL_STRINGS_AND_COMMENTS = re.compile(
+    r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"|\$\$.*?\$\$|--[^\n]*|//[^\n]*|/\*.*?\*/",
+    re.DOTALL,
+)
 
 
 def _bounded_limit(limit: int, max_results: int) -> int:
@@ -64,6 +74,19 @@ def _ensure_sql_limit(query: str, limit: int) -> str:
     return f"{normalized} LIMIT {limit}"
 
 
+def _read_only_violation(statement: str) -> str | None:
+    """Return why ``statement`` is not a single read-only query, or ``None``."""
+    code = _SQL_STRINGS_AND_COMMENTS.sub(" ", statement).strip().rstrip(";").lower()
+    if ";" in code:
+        return "Only one SQL statement may be run."
+    if not code.startswith(_READ_STATEMENT_PREFIXES):
+        return "Only SELECT, WITH, SHOW, DESCRIBE, or EXPLAIN statements may be run."
+    keyword = _WRITE_KEYWORDS.search(code)
+    if keyword is not None:
+        return f"Statements containing {keyword.group(1).upper()} may not be run."
+    return None
+
+
 def _auth_header(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
@@ -109,6 +132,7 @@ def _map_query_snowflake_history(
 
 @tool(
     name="query_snowflake_history",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     description="Query Snowflake query history using a read-only bounded statement.",
     source="snowflake",
     surfaces=(ToolSurface.CHAT,),
@@ -164,6 +188,9 @@ def query_snowflake_history(
         return tool_unavailable("snowflake", "Missing Snowflake token.", rows=[])
 
     statement = _ensure_sql_limit(query, effective_limit)
+    violation = _read_only_violation(statement)
+    if violation is not None:
+        return tool_unavailable("snowflake", f"Refused a non-read-only query. {violation}", rows=[])
     endpoint = f"https://{account}.snowflakecomputing.com/api/v2/statements"
     headers: dict[str, str] = {"Content-Type": "application/json", "Accept": "application/json"}
     headers.update(_auth_header(bearer))
@@ -171,6 +198,8 @@ def query_snowflake_history(
     payload: dict[str, Any] = {
         "statement": statement,
         "timeout": max(1, int(timeout_seconds)),
+        # Snowflake rejects a request carrying more statements than this.
+        "parameters": {"MULTI_STATEMENT_COUNT": "1"},
     }
     if warehouse:
         payload["warehouse"] = warehouse

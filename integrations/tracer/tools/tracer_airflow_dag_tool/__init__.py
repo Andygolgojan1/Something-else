@@ -6,6 +6,7 @@ import os
 from typing import Any
 
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from integrations.airflow.config import (
     AirflowConfig,
@@ -50,6 +51,7 @@ def _airflow_dag_id(sources: dict[str, Any]) -> str:
 
 @tool(
     name="get_recent_airflow_failures",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     source="airflow",
     description="Fetch recent failed or retrying Airflow task evidence for a DAG.",
     use_cases=[
@@ -97,6 +99,7 @@ def get_recent_airflow_failures(
 
 @tool(
     name="get_airflow_dag_runs",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     source="airflow",
     description="Fetch recent Airflow DAG runs for a DAG.",
     use_cases=[
@@ -147,6 +150,7 @@ def get_airflow_dag_runs(
 
 @tool(
     name="get_airflow_task_instances",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     source="airflow",
     description="Fetch Airflow task instances for a specific DAG run.",
     use_cases=[

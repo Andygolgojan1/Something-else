@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Final
 
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from core.tool_framework.utils import tool_unavailable
 from integrations.yandex_cloud.availability import (
@@ -322,6 +323,7 @@ def _application_balancers(client: YandexCloudClient) -> tuple[list[dict[str, An
 
 @tool(
     name="get_yc_lb_health",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     surfaces=(ToolSurface.ACTION,),
     display_name="Load Balancers",
     source=SOURCE,

@@ -7,6 +7,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from integrations.sentry.uptime import (
     UptimeTransitionRecord,
@@ -171,6 +172,7 @@ def _build_rollup(
 
 @tool(
     name="get_sentry_uptime_digest",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     source="sentry",
     description=(
         "Retrieve an uptime digest rollup from the local watch transition log. "

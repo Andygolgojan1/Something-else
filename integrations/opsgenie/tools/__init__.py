@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.domain.types.evidence import record_evidence_entry
-from core.tool import BaseTool
+from core.tool import BaseTool, SideEffectLevel
 from core.tool_framework.utils import tool_unavailable
 from infrastructure.text.truncation import truncate
 from integrations.opsgenie.client import make_opsgenie_client
@@ -71,6 +71,7 @@ class OpsGenieAlertDetailTool(BaseTool):
     """Fetch full details and activity log for a specific OpsGenie alert."""
 
     name = "opsgenie_alert_detail"
+    side_effect_level = SideEffectLevel.READ_ONLY
     source = "opsgenie"
     evidence_mapper = _map_opsgenie_alert_detail
     description = (
@@ -228,6 +229,7 @@ class OpsGenieAlertsTool(BaseTool):
     """List and search OpsGenie alerts to surface active incidents and their triage state."""
 
     name = "opsgenie_alerts"
+    side_effect_level = SideEffectLevel.READ_ONLY
     source = "opsgenie"
     evidence_mapper = _map_opsgenie_alerts
     description = (

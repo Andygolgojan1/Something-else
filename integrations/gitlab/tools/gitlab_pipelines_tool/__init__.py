@@ -6,6 +6,7 @@ from typing import Any
 
 from core.domain.types.evidence import record_evidence_entry
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from core.tool_framework.utils import code_host_unavailable_payload
 from integrations.gitlab import (
@@ -57,6 +58,7 @@ def _list_gitlab_pipelines_available(sources: dict[str, dict]) -> bool:
 
 @tool(
     name="list_gitlab_pipelines",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     source="gitlab",
     description="List recent CI/CD pipelines for a GitLab project.",
     use_cases=[

@@ -8,6 +8,7 @@ The README and `init_sentry` docstring promise:
 | `DO_NOT_TRACK=1`                 | disabled | disabled |
 | `OPENSRE_ANALYTICS_DISABLED=1`   | disabled | enabled  |
 | `OPENSRE_SENTRY_DISABLED=1`      | enabled  | disabled |
+| `OPENSRE_SOVEREIGN_MODE=1`       | disabled | disabled |
 
 These tests pin the table so a future refactor cannot silently re-route or
 drop one of the flags.
@@ -29,6 +30,7 @@ _ENV_VARS = (
     "DO_NOT_TRACK",
     "OPENSRE_ANALYTICS_DISABLED",
     "OPENSRE_SENTRY_DISABLED",
+    "OPENSRE_SOVEREIGN_MODE",
 )
 
 
@@ -61,6 +63,7 @@ def _sentry_init_call_count(monkeypatch: pytest.MonkeyPatch) -> int:
         ("DO_NOT_TRACK", True, True),
         ("OPENSRE_ANALYTICS_DISABLED", True, False),
         ("OPENSRE_SENTRY_DISABLED", False, True),
+        ("OPENSRE_SOVEREIGN_MODE", True, True),
     ],
 )
 def test_kill_switch_matrix(

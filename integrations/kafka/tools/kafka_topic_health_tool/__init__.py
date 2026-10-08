@@ -4,6 +4,7 @@ from typing import Any
 
 from core.domain.types.evidence import record_evidence_entry
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from integrations.kafka import (
     KafkaConfig,
@@ -42,6 +43,7 @@ def _map_get_kafka_topic_health(
 
 @tool(
     name="get_kafka_topic_health",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     description="Retrieve topic partition health from a Kafka cluster, including replica status, ISR counts, and under-replicated partitions.",
     source="kafka",
     surfaces=(ToolSurface.CHAT,),

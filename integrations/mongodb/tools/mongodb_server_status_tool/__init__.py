@@ -4,6 +4,7 @@ from typing import Any
 
 from core.domain.types.evidence import record_evidence_entry
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from integrations.mongodb import (
     MongoDBConfig,
@@ -34,6 +35,7 @@ def _map_get_mongodb_server_status(
 
 @tool(
     name="get_mongodb_server_status",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     description="Retrieve high-level MongoDB server status including connections, memory usage, and operation counters.",
     source="mongodb",
     surfaces=(ToolSurface.CHAT,),

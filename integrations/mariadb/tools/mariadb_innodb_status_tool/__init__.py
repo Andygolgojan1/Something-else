@@ -4,6 +4,7 @@ from typing import Any
 
 from core.domain.types.evidence import record_evidence_entry
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from core.tool_framework.utils import call_db_tool_with_default_db_warning
 from integrations.mariadb import (
@@ -36,6 +37,7 @@ def _map_get_mariadb_innodb_status(
 
 @tool(
     name="get_mariadb_innodb_status",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     description="Retrieve InnoDB engine internals including deadlocks, buffer pool state, and I/O activity from SHOW ENGINE INNODB STATUS.",
     source="mariadb",
     surfaces=(ToolSurface.CHAT,),

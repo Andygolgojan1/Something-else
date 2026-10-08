@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.domain.types.tools import ToolSurface
-from core.tool import BaseTool
+from core.tool import BaseTool, SideEffectLevel
 from core.tool_framework.utils import tool_unavailable
 from integrations.config_models import KubernetesIntegrationConfig
 from integrations.kubernetes.client import _RESOURCE_DISPATCH, KubernetesClient
@@ -64,6 +64,7 @@ class KubernetesListPodsTool(BaseTool):
     """List pods in a Kubernetes namespace to diagnose availability and restart issues."""
 
     name = "kubernetes_list_pods"
+    side_effect_level = SideEffectLevel.READ_ONLY
     source = "kubernetes"
     description = (
         "List pods in a Kubernetes namespace. Returns pod phase, container readiness, "
@@ -160,6 +161,7 @@ class KubernetesGetPodLogsTool(BaseTool):
     """Fetch recent log lines from a Kubernetes pod container."""
 
     name = "kubernetes_get_pod_logs"
+    side_effect_level = SideEffectLevel.READ_ONLY
     source = "kubernetes"
     description = (
         "Fetch recent log lines from one Kubernetes pod (optionally one container). "
@@ -275,6 +277,7 @@ class KubernetesListDeploymentsTool(BaseTool):
     """List Kubernetes deployments and their replica status."""
 
     name = "kubernetes_list_deployments"
+    side_effect_level = SideEffectLevel.READ_ONLY
     source = "kubernetes"
     description = (
         "List deployments in a Kubernetes namespace with their desired, ready, "
@@ -361,6 +364,7 @@ class KubernetesGetEventsTool(BaseTool):
     """List Kubernetes events for a namespace to diagnose crash loops and scheduling failures."""
 
     name = "kubernetes_get_events"
+    side_effect_level = SideEffectLevel.READ_ONLY
     source = "kubernetes"
     description = (
         "List Kubernetes events for a namespace. Events capture crash loops, "
@@ -461,6 +465,7 @@ class KubernetesDescribePodTool(BaseTool):
     """Fetch full spec, status, and container states for a single Kubernetes pod."""
 
     name = "kubernetes_describe_pod"
+    side_effect_level = SideEffectLevel.READ_ONLY
     source = "kubernetes"
     description = (
         "Fetch the full spec and status for a single pod: containers, images, resource "
@@ -553,6 +558,7 @@ class KubernetesListNodesTool(BaseTool):
     """List Kubernetes cluster nodes with conditions and capacity."""
 
     name = "kubernetes_list_nodes"
+    side_effect_level = SideEffectLevel.READ_ONLY
     source = "kubernetes"
     description = (
         "List all nodes in the Kubernetes cluster with their readiness conditions, "
@@ -648,6 +654,7 @@ class KubernetesListServicesTool(BaseTool):
     """List Kubernetes services with their type, ports, and selector."""
 
     name = "kubernetes_list_services"
+    side_effect_level = SideEffectLevel.READ_ONLY
     source = "kubernetes"
     description = (
         "List services in a Kubernetes namespace with their type (ClusterIP/NodePort/LoadBalancer), "
@@ -745,6 +752,7 @@ class KubernetesListStatefulSetsTool(BaseTool):
     """List Kubernetes StatefulSets with replica status."""
 
     name = "kubernetes_list_statefulsets"
+    side_effect_level = SideEffectLevel.READ_ONLY
     source = "kubernetes"
     description = (
         "List StatefulSets in a Kubernetes namespace with desired, ready, current, "
@@ -831,6 +839,7 @@ class KubernetesListDaemonSetsTool(BaseTool):
     """List Kubernetes DaemonSets with desired/ready/available counts."""
 
     name = "kubernetes_list_daemonsets"
+    side_effect_level = SideEffectLevel.READ_ONLY
     source = "kubernetes"
     description = (
         "List DaemonSets in a Kubernetes namespace with desired, current, ready, "
@@ -918,6 +927,7 @@ class KubernetesListIngressesTool(BaseTool):
     """List Kubernetes Ingress resources with routing rules and TLS config."""
 
     name = "kubernetes_list_ingresses"
+    side_effect_level = SideEffectLevel.READ_ONLY
     source = "kubernetes"
     description = (
         "List Ingress resources in a Kubernetes namespace with their host rules, "
@@ -1006,6 +1016,7 @@ class KubernetesListConfigMapsTool(BaseTool):
     """List Kubernetes ConfigMaps with their key-value data."""
 
     name = "kubernetes_list_configmaps"
+    side_effect_level = SideEffectLevel.READ_ONLY
     source = "kubernetes"
     description = (
         "List ConfigMaps in a Kubernetes namespace with their full key-value data. "
@@ -1093,6 +1104,7 @@ class KubernetesGetResourceTool(BaseTool):
     """Fetch a single named Kubernetes resource by type and name."""
 
     name = "kubernetes_get_resource"
+    side_effect_level = SideEffectLevel.READ_ONLY
     source = "kubernetes"
     description = (
         "Fetch the raw spec and status of a single named Kubernetes resource, "

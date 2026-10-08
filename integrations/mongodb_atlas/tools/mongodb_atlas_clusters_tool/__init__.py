@@ -3,6 +3,7 @@
 from typing import Any
 
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from integrations.mongodb_atlas import (
     MongoDBAtlasConfig,
@@ -15,6 +16,7 @@ from integrations.mongodb_atlas.tools._evidence import map_get_mongodb_atlas_clu
 
 @tool(
     name="get_mongodb_atlas_clusters",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     description="Retrieve all MongoDB Atlas clusters in a project including state, version, instance size, and replication topology.",
     source="mongodb_atlas",
     surfaces=(ToolSurface.CHAT,),

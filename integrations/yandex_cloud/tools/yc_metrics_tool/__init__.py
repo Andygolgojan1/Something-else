@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from core.tool_framework.utils import tool_unavailable
 from integrations.yandex_cloud.availability import (
@@ -46,6 +47,7 @@ def _extract_params(sources: dict[str, dict]) -> dict[str, Any]:
 
 @tool(
     name="query_yc_metrics",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     surfaces=(ToolSurface.ACTION,),
     display_name="Yandex Monitoring",
     source=SOURCE,
@@ -206,6 +208,7 @@ def _series_sample(client: YandexMonitoringClient, selectors: str) -> list[dict[
 
 @tool(
     name="list_yc_metrics",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     surfaces=(ToolSurface.ACTION,),
     display_name="Yandex Monitoring",
     source=SOURCE,

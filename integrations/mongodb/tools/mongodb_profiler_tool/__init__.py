@@ -4,6 +4,7 @@ from typing import Any
 
 from core.domain.types.evidence import record_evidence_entry
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from integrations.mongodb import (
     MongoDBConfig,
@@ -52,6 +53,7 @@ def _map_get_mongodb_profiler_data(
 
 @tool(
     name="get_mongodb_profiler_data",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     description="Retrieve slow queries from the MongoDB database system.profile collection (requires profiling enabled).",
     source="mongodb",
     surfaces=(ToolSurface.CHAT,),

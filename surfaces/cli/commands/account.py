@@ -8,6 +8,8 @@ from dataclasses import asdict
 import click
 
 from config.constants.account import OPENSRE_APP_URL_DEV
+from config.constants.sovereign import SOVEREIGN_MODE_ENV
+from config.sovereign import sovereign_mode_enabled
 from surfaces.cli import account_auth
 from surfaces.cli.account_ui import (
     AccountLoginPresenter,
@@ -180,6 +182,11 @@ def account_login(
     force: bool,
 ) -> None:
     """Sign in or create a personal OpenSRE account."""
+    if sovereign_mode_enabled():
+        raise click.ClickException(
+            f"{SOVEREIGN_MODE_ENV} is on, so OpenSRE accounts are disabled. "
+            f"Unset {SOVEREIGN_MODE_ENV} to sign in."
+        )
     json_output = _json_enabled(ctx)
     presenter = AccountLoginPresenter()
     resolved_app_url = _optional_app_url(app_url=app_url, dev=_dev_enabled(ctx, dev))

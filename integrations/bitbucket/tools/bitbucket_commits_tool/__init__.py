@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from core.tool_framework.utils import tool_unavailable
 from integrations.bitbucket.client import list_commits
@@ -35,6 +36,7 @@ def _list_bitbucket_commits_available(sources: dict[str, dict]) -> bool:
 
 @tool(
     name="list_bitbucket_commits",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     description="List recent commits for a Bitbucket repository, optionally filtered by file path.",
     source="bitbucket",
     surfaces=(ToolSurface.CHAT,),

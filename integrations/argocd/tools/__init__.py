@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.tool import BaseTool
+from core.tool import BaseTool, SideEffectLevel
 from core.tool_framework.utils import tool_unavailable
 from integrations.argocd.client import make_argocd_client
 from integrations.argocd.tools._evidence import (
@@ -19,6 +19,7 @@ class ArgoCDApplicationDiffTool(BaseTool):
     """Fetch Argo CD server-side diff data for an application."""
 
     name = "argocd_application_diff"
+    side_effect_level = SideEffectLevel.READ_ONLY
     evidence_mapper = map_argocd_application_diff
     source = "argocd"
     description = (
@@ -149,6 +150,7 @@ class ArgoCDApplicationStatusTool(BaseTool):
     """Fetch Argo CD application sync and health status."""
 
     name = "argocd_application_status"
+    side_effect_level = SideEffectLevel.READ_ONLY
     evidence_mapper = map_argocd_application_status
     source = "argocd"
     description = (

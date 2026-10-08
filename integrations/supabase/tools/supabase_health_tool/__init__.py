@@ -4,7 +4,7 @@ from typing import Any
 
 from core.domain.types.evidence import record_evidence_entry
 from core.domain.types.tools import ToolSurface
-from core.tool import EvidenceType
+from core.tool import EvidenceType, SideEffectLevel
 from core.tool_framework import tool
 from integrations.supabase import (
     get_service_health,
@@ -36,6 +36,7 @@ def _map_get_supabase_service_health(
 
 @tool(
     name="get_supabase_service_health",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     description="Check the health of all Supabase services (PostgREST, Auth, Storage) for a given project.",
     source="supabase",
     surfaces=(ToolSurface.CHAT,),

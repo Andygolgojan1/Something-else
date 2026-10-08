@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.tool import BaseTool
+from core.tool import BaseTool, SideEffectLevel
 from integrations.helm.client_factory import helm_client_for_run
 from integrations.helm.unavailable import helm_base_unavailable
 
@@ -15,6 +15,7 @@ class HelmListReleasesTool(BaseTool):
     """List Helm releases in the configured Kubernetes cluster."""
 
     name = "helm_list_releases"
+    side_effect_level = SideEffectLevel.READ_ONLY
     source = "helm"
     description = (
         "List Helm releases (JSON metadata) using the local Helm CLI against the "
@@ -134,6 +135,7 @@ class HelmReleaseStatusTool(BaseTool):
     """Fetch `helm status` for one release (JSON)."""
 
     name = "helm_release_status"
+    side_effect_level = SideEffectLevel.READ_ONLY
     source = "helm"
     description = "Fetch Helm release status (resources, hooks metadata, notes) as structured JSON."
     use_cases = [
@@ -223,6 +225,7 @@ class HelmReleaseHistoryTool(BaseTool):
     """Fetch `helm history` for a release (JSON array)."""
 
     name = "helm_release_history"
+    side_effect_level = SideEffectLevel.READ_ONLY
     source = "helm"
     description = "Fetch Helm revision history (status, chart version, description per revision)."
     use_cases = [
@@ -310,6 +313,7 @@ class HelmGetReleaseValuesTool(BaseTool):
     """Fetch merged user-supplied values (`helm get values`)."""
 
     name = "helm_get_release_values"
+    side_effect_level = SideEffectLevel.READ_ONLY
     source = "helm"
     description = "Fetch Helm values for a release as JSON. May include secrets — handle carefully."
     use_cases = [
@@ -402,6 +406,7 @@ class HelmGetReleaseManifestTool(BaseTool):
     """Fetch rendered manifest text (`helm get manifest`), size-capped."""
 
     name = "helm_get_release_manifest"
+    side_effect_level = SideEffectLevel.READ_ONLY
     source = "helm"
     description = (
         "Fetch the rendered Kubernetes manifest YAML for a Helm release (truncated if huge)."

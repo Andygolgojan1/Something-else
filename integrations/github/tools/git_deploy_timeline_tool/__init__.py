@@ -25,6 +25,7 @@ from typing import Any
 from core.domain.types.evidence import record_evidence_entry
 from core.domain.types.incident_window import IncidentWindow
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from core.tool_framework.utils import tool_unavailable
 from integrations.github.envelope import normalize_github_tool_result
@@ -172,6 +173,7 @@ def _map_get_git_deploy_timeline(
 
 @tool(
     name="get_git_deploy_timeline",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     source="github",
     description=(
         "List commits on a GitHub branch within a time window (defaults to the last "

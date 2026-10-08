@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from core.tool_framework.utils import tool_unavailable
 from integrations.yandex_cloud.api_index import canonical_service, known_services, lookup
@@ -51,6 +52,7 @@ def _extract_params(sources: dict[str, dict]) -> dict[str, Any]:
 
 @tool(
     name="execute_yc_operation",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     surfaces=(ToolSurface.ACTION,),
     display_name="Yandex Cloud",
     source=SOURCE,

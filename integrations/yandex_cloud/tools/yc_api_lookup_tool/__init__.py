@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from integrations.yandex_cloud.api_index import (
     DEFAULT_LIMIT,
@@ -26,6 +27,7 @@ SOURCE = "yandex_cloud"
 
 @tool(
     name="find_yc_api",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     display_name="Yandex Cloud",
     source=SOURCE,
     surfaces=(ToolSurface.ACTION,),

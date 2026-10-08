@@ -4,6 +4,7 @@ from typing import Any
 
 from core.domain.types.evidence import record_evidence_entry
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from core.tool_framework.utils import call_db_tool_with_default_db_warning
 from integrations.mariadb import (
@@ -43,6 +44,7 @@ def _map_get_mariadb_global_status(
 
 @tool(
     name="get_mariadb_global_status",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     description="Retrieve key MariaDB server metrics including connections, threads, slow queries, InnoDB buffer pool stats, and uptime from SHOW GLOBAL STATUS.",
     source="mariadb",
     surfaces=(ToolSurface.CHAT,),

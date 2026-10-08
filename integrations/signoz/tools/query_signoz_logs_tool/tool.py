@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 from core.domain.types.evidence import record_evidence_entry
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from core.tool_framework.utils import tool_unavailable
 from infrastructure.evidence.evidence_compaction import compact_logs, summarize_counts
@@ -98,6 +99,7 @@ def _normalize_logs_payload(
 
 @tool(
     name="query_signoz_logs",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     display_name="SigNoz logs",
     source="signoz",
     tags=("logs", "observability"),

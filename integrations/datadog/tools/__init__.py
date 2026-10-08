@@ -168,6 +168,7 @@ def _context_extract_params(sources: dict[str, dict]) -> dict[str, Any]:
 
 @tool(
     name="query_datadog_all",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     display_name="Datadog",
     source="datadog",
     description="Fetch Datadog logs, monitors, and events in parallel for fast investigation.",
@@ -310,6 +311,7 @@ def _events_extract_params(sources: dict[str, dict]) -> dict[str, Any]:
 
 @tool(
     name="query_datadog_events",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     display_name="Datadog events",
     source="datadog",
     description="Query Datadog events for deployments, alerts, and system changes.",
@@ -416,6 +418,7 @@ _DATADOG_LOGS_ANTI = (
 
 @tool(
     name="query_datadog_logs",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     display_name="Datadog logs",
     source="datadog",
     tags=("logs", "observability"),
@@ -616,6 +619,7 @@ def _monitors_extract_params(sources: dict[str, dict]) -> dict[str, Any]:
 
 @tool(
     name="query_datadog_monitors",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     display_name="Datadog monitors",
     source="datadog",
     description="List Datadog monitors to understand alerting configuration and current states.",
@@ -699,6 +703,7 @@ def _node_pods_extract_params(sources: dict[str, dict]) -> dict[str, Any]:
 
 @tool(
     name="get_pods_on_node",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     source="datadog",
     description="Resolve a node IP address to all pods running on that node via Datadog.",
     use_cases=[

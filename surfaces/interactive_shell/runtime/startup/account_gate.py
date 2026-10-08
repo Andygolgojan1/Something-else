@@ -8,6 +8,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from config.constants import OPENSRE_PARENT_INTERACTIVE_SHELL_ENV
+from config.sovereign import sovereign_mode_enabled
 from infrastructure.analytics.source import is_test_run
 
 if TYPE_CHECKING:
@@ -54,14 +55,15 @@ def account_login(*, console: Console | None = None) -> bool:
 def pass_sign_in_gate(console: Console, *, on_screen: Callable[[], None] | None = None) -> bool:
     """Run the sign-in gate; return True to proceed into the REPL.
 
-    Test processes skip the prompt (same reason as the loops picker) so pytest
+    Sovereign mode skips the gate: the shell then runs on the operator's own
+    ``LLM_PROVIDER`` with no OpenSRE account. Test processes skip the prompt (same reason as the loops picker) so pytest
     on a TTY cannot hang on the Sign in/Stay signed out choice. An app that
     cannot be reached ends the launch with that reason: the sign-in screen is
     only for a login that is missing or was rejected.
     ``on_screen`` fires once when the sign-in screen is actually painted, not
     when the user is already signed in or the gate fails closed without a menu.
     """
-    if is_test_run():
+    if is_test_run() or sovereign_mode_enabled():
         return True
     from infrastructure.analytics.capture import (
         capture_sign_in_prompted,

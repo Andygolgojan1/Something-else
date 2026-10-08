@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from core.tool_framework.utils import tool_unavailable
 from integrations.jenkins import jenkins_config_from_env
@@ -91,6 +92,7 @@ def _list_jenkins_builds_extract_params(sources: dict[str, dict]) -> dict[str, A
 
 @tool(
     name="list_jenkins_builds",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     source="jenkins",
     description="List recent Jenkins builds for a job with status and timestamp.",
     use_cases=[
@@ -168,6 +170,7 @@ def _get_jenkins_build_log_extract_params(sources: dict[str, dict]) -> dict[str,
 
 @tool(
     name="get_jenkins_build_log",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     source="jenkins",
     description="Fetch the console log for a specific Jenkins build.",
     use_cases=[
@@ -237,6 +240,7 @@ def _get_jenkins_pipeline_stages_extract_params(sources: dict[str, dict]) -> dic
 
 @tool(
     name="get_jenkins_pipeline_stages",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     source="jenkins",
     description="List the pipeline stages of a Jenkins build with per-stage status and duration.",
     use_cases=[
@@ -303,6 +307,7 @@ def _list_jenkins_jobs_extract_params(sources: dict[str, dict]) -> dict[str, Any
 
 @tool(
     name="list_jenkins_jobs",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     source="jenkins",
     description="List Jenkins jobs with their last-build status.",
     use_cases=[
@@ -358,6 +363,7 @@ def _list_jenkins_running_builds_extract_params(sources: dict[str, dict]) -> dic
 
 @tool(
     name="list_jenkins_running_builds",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     source="jenkins",
     description="List Jenkins builds currently in progress across all jobs.",
     use_cases=[

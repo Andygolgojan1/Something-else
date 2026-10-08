@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from core.tool_framework.utils import tool_unavailable
 from integrations.groundcover.availability import groundcover_available_or_backend
@@ -48,6 +49,7 @@ def _logs_extract_params(sources: dict[str, dict]) -> dict[str, Any]:
 
 @tool(
     name="query_groundcover_logs",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     display_name="groundcover logs",
     source="groundcover",
     tags=("logs", "observability"),
@@ -133,6 +135,7 @@ def _query_ref_extract_params(sources: dict[str, dict]) -> dict[str, Any]:
 
 @tool(
     name="get_groundcover_query_reference",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     display_name="groundcover query reference",
     source="groundcover",
     tags=("observability", "reference"),
@@ -218,6 +221,7 @@ def _traces_extract_params(sources: dict[str, dict]) -> dict[str, Any]:
 
 @tool(
     name="query_groundcover_traces",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     display_name="groundcover traces",
     source="groundcover",
     tags=("traces", "observability"),

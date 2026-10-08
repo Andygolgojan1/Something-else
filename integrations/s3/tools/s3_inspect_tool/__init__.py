@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from infrastructure.delivery.notifications.limits import MAX_MESSAGE_SIZE
 from integrations.aws.s3_client import get_object_metadata, get_object_sample
@@ -20,6 +21,7 @@ def _extract_inspect_s3_params(sources: dict[str, dict]) -> dict:
 
 @tool(
     name="inspect_s3_object",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     display_name="S3",
     source="storage",
     description="Inspect an S3 object's metadata and sample content.",

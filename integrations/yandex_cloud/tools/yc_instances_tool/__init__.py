@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from core.tool_framework.utils import tool_unavailable
 from integrations.yandex_cloud.availability import (
@@ -62,6 +63,7 @@ def _summarize(instance: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     name="list_yc_instances",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     display_name="Compute Cloud",
     source=SOURCE,
     description=(
@@ -158,6 +160,7 @@ def list_yc_instances(
 
 @tool(
     name="get_yc_instance_diagnostics",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     display_name="Compute Cloud",
     source=SOURCE,
     description=(

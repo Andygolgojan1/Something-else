@@ -3,6 +3,7 @@
 from typing import Any
 
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from core.tool_framework.utils import call_db_tool_with_default_db_warning
 from integrations.azure_sql import (
@@ -15,6 +16,7 @@ from integrations.azure_sql import (
 
 @tool(
     name="get_azure_sql_slow_queries",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     description=(
         "Retrieve slow query statistics from Azure SQL Database query stats DMV,"
         " ordered by average elapsed time."

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from infrastructure.evidence.evidence_compaction import (
     compact_invocations,
@@ -21,6 +22,7 @@ def _extract_lambda_invocation_logs_params(sources: dict[str, dict]) -> dict:
 
 @tool(
     name="get_lambda_invocation_logs",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     display_name="Lambda logs",
     source="cloudwatch",
     description="Get Lambda invocation logs from CloudWatch.",

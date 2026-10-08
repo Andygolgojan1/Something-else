@@ -6,6 +6,7 @@ from typing import Any
 
 from core.domain.types.evidence import record_evidence_entry
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from integrations.betterstack import (
     BetterStackConfig,
@@ -45,6 +46,7 @@ def _map_query_betterstack_logs(
 
 @tool(
     name="query_betterstack_logs",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     display_name="Better Stack logs",
     description=(
         "Query a Better Stack Telemetry source for log rows using ClickHouse "

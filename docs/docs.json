@@ -94,6 +94,7 @@
           "platform/multi-instance-integrations",
           "platform/masking",
           "platform/interactive-shell-privacy",
+          "platform/sovereign-mode",
           "platform/sessions",
           "platform/principal-scoped-storage",
           "platform/memory",

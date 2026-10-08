@@ -4,6 +4,7 @@ from typing import Any
 
 from core.domain.types.evidence import record_evidence_entry
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from integrations.clickhouse import (
     ClickHouseConfig,
@@ -40,6 +41,7 @@ def _map_get_clickhouse_query_activity(
 
 @tool(
     name="get_clickhouse_query_activity",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     description="Retrieve recent query activity (including failed queries) from a ClickHouse instance, with query duration, rows read, and memory usage.",
     source="clickhouse",
     surfaces=(ToolSurface.CHAT,),

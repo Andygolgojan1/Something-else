@@ -3,6 +3,7 @@
 from typing import Any
 
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from integrations.redis import (
     RedisConfig,
@@ -14,6 +15,7 @@ from integrations.redis import (
 
 @tool(
     name="get_redis_latency_doctor",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     description=(
         "Run Redis LATENCY DOCTOR to diagnose recent latency spikes (fork/RDB "
         "save, AOF rewrite, blocking commands, slow disk) and list the latest "
