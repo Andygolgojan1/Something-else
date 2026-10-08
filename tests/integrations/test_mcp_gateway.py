@@ -11,7 +11,7 @@ import pytest
 from pydantic import ValidationError
 
 from config.constants.mcp_gateway import MCP_GATEWAY_TOOL_RESPONSE_MAX_BYTES
-from integrations.mcp_client import McpResponseTooLargeError
+from integrations.mcp_client import McpResponseTooLargeError, McpToolCallOutcomeUnknownError
 from integrations.mcp_gateway import (
     McpGatewayClient,
     McpGatewayConfig,
@@ -143,9 +143,11 @@ def test_client_caps_tool_response_before_protocol_parsing() -> None:
 
 def test_oversized_mutation_response_reports_unknown_outcome() -> None:
     config = McpGatewayConfig(url="https://mcp.example.test/mcp")
-    failure = ExceptionGroup(
-        "transport failed",
-        [McpResponseTooLargeError("MCP HTTP response exceeded the configured byte limit")],
+    failure = McpToolCallOutcomeUnknownError(
+        "MCP tool call failed after request dispatch began"
+    )
+    failure.__cause__ = McpResponseTooLargeError(
+        "MCP HTTP response exceeded the configured byte limit"
     )
     with (
         patch(
@@ -160,6 +162,10 @@ def test_oversized_mutation_response_reports_unknown_outcome() -> None:
 
 def test_disconnected_mutation_reports_unknown_outcome() -> None:
     config = McpGatewayConfig(url="https://mcp.example.test/mcp")
+    failure = McpToolCallOutcomeUnknownError(
+        "MCP tool call failed after request dispatch began"
+    )
+    failure.__cause__ = httpx.ReadError("connection reset")
     with (
         patch(
             "integrations.mcp_gateway.client.list_mcp_tools",
@@ -167,11 +173,29 @@ def test_disconnected_mutation_reports_unknown_outcome() -> None:
         ),
         patch(
             "integrations.mcp_gateway.client.call_mcp_tool",
-            side_effect=httpx.ReadError("connection reset"),
+            side_effect=failure,
         ),
         pytest.raises(McpGatewayRequestError, match="outcome is unknown.*Do not retry"),
     ):
         McpGatewayClient(config).call_tool("restart_service")
+
+
+def test_pre_dispatch_mutation_failure_does_not_report_unknown_outcome() -> None:
+    config = McpGatewayConfig(url="https://mcp.example.test/mcp")
+    with (
+        patch(
+            "integrations.mcp_gateway.client.list_mcp_tools",
+            return_value=[types.Tool(name="restart_service", input_schema={})],
+        ),
+        patch(
+            "integrations.mcp_gateway.client.call_mcp_tool",
+            side_effect=httpx.ReadError("initialization failed"),
+        ),
+        pytest.raises(McpGatewayRequestError, match="ReadError") as error,
+    ):
+        McpGatewayClient(config).call_tool("restart_service")
+
+    assert "outcome is unknown" not in str(error.value)
 
 
 def test_client_reports_the_effective_timeout() -> None:

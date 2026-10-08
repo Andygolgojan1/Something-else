@@ -110,6 +110,18 @@ def test_natural_language_is_left_alone(text: str) -> None:
     assert redact_text(text) == text
 
 
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ('api_key="abc$def123"', "api_key=[REDACTED]"),
+        ('password="Correct Horse Battery Staple!"', "password=[REDACTED:password]"),
+        ("secret='punctuation! stays hidden'", "secret=[REDACTED]"),
+    ],
+)
+def test_quoted_credentials_are_fully_redacted(raw: str, expected: str) -> None:
+    assert redact_text(raw) == expected
+
+
 def test_standalone_bearer_prose_survives_history_while_credentials_are_masked(
     tmp_path: Path,
 ) -> None:

@@ -6,6 +6,7 @@ import asyncio
 import os
 from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, Mapping
 from contextlib import AsyncExitStack, asynccontextmanager
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, NotRequired, Protocol, Unpack, cast
 
 import httpx
@@ -27,6 +28,15 @@ from integrations.mcp_transport import McpTransportMode
 
 if TYPE_CHECKING:
     from mcp.client.session import ClientSession  # type: ignore[import-not-found]
+
+
+class McpToolCallOutcomeUnknownError(RuntimeError):
+    """Signal that transport failed after an MCP tool request began."""
+
+
+@dataclass
+class _ToolCallState:
+    request_started: bool = False
 
 
 class McpClientConfig(Protocol):
@@ -334,6 +344,7 @@ async def _call_tool_async(
     *,
     timeout_call: bool,
     response_byte_limit: int | None,
+    call_state: _ToolCallState,
     **session_options: Unpack[McpSessionOptions],
 ) -> dict[str, object]:
     async with open_mcp_session(
@@ -341,6 +352,7 @@ async def _call_tool_async(
         response_byte_limit=response_byte_limit,
         **session_options,
     ) as session:
+        call_state.request_started = True
         call = session.call_tool(tool_name, arguments or {})
         result = (
             await asyncio.wait_for(call, timeout=config.timeout_seconds)
@@ -364,14 +376,23 @@ def call_mcp_tool(
     **session_options: Unpack[McpSessionOptions],
 ) -> dict[str, object]:
     """Call an MCP tool and normalize its result."""
+    call_state = _ToolCallState()
     operation = _call_tool_async(
         config,
         tool_name,
         arguments,
         timeout_call=timeout_call,
         response_byte_limit=response_byte_limit,
+        call_state=call_state,
         **session_options,
     )
     if timeout_entire_operation:
         operation = asyncio.wait_for(operation, timeout=config.timeout_seconds)
-    return cast(dict[str, object], run_async(operation))
+    try:
+        return cast(dict[str, object], run_async(operation))
+    except Exception as exc:
+        if call_state.request_started:
+            raise McpToolCallOutcomeUnknownError(
+                "MCP tool call failed after request dispatch began"
+            ) from exc
+        raise

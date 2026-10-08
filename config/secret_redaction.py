@@ -60,15 +60,19 @@ def _build_default_rules() -> tuple[RedactionRule, ...]:
             r"eyJ[A-Za-z0-9_\-]{8,}\.eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}",
             "[REDACTED:jwt]",
         ),
-        ("password_arg", r"(?i)(--password=|password=)\S+", "[REDACTED:password]"),
+        (
+            "password_arg",
+            r"(?i)(--password=|password=)(?:\"[^\"\r\n]*\"|'[^'\r\n]*'|\S+)",
+            r"\1[REDACTED:password]",
+        ),
         (
             "inline_credential",
             r"(?i)\b((?:api[_-]?key|access[_-]?token|token|secret|password|passwd|passphrase|"
             r"credential|authorization|auth[_-]?header|private[_-]?key|signing[_-]?key|"
             r"seed[_-]?phrase|mnemonic)\s*[:=]\s*)(?!(?:bearer|basic)\b|\[REDACTED\])"
-            r"[\"']?(?:(?=[A-Za-z0-9._~+/-]{6,}=*[\"']?(?:[\s,;]|$))"
+            r"(?:\"[^\"\r\n]*\"|'[^'\r\n]*'|(?:(?=[A-Za-z0-9._~+/-]{6,}=*(?:[\s,;]|$))"
             r"(?=[A-Za-z0-9._~+/-]*(?:[0-9]|[._~+/-]))[A-Za-z0-9._~+/-]+=*|"
-            r"[A-Za-z]{16,})[\"']?",
+            r"[A-Za-z]{16,}))",
             r"\1[REDACTED]",
         ),
         (

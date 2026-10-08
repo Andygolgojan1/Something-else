@@ -12,7 +12,7 @@ from config.constants.mcp_gateway import (
     MCP_GATEWAY_DEFAULT_TIMEOUT_SECONDS,
     MCP_GATEWAY_URL_ENV,
 )
-from integrations.mcp_client import McpResponseTooLargeError
+from integrations.mcp_client import McpResponseTooLargeError, McpToolCallOutcomeUnknownError
 
 _BEARER_SECRET = re.compile(r"(?i)bearer\s+[^\s,;]+")
 
@@ -66,13 +66,17 @@ def describe_mcp_gateway_error(
         return sanitize_mcp_gateway_text(str(exc), auth_token=auth_token)
 
     nested = _exceptions(exc)
-    if mutation_outcome_unknown and any(
-        isinstance(item, McpResponseTooLargeError) for item in nested
-    ):
+    call_outcome_unknown = mutation_outcome_unknown and any(
+        isinstance(item, McpToolCallOutcomeUnknownError) for item in nested
+    )
+    if call_outcome_unknown:
+        if any(isinstance(item, McpResponseTooLargeError) for item in nested):
+            reason = "its response exceeded the safety limit"
+        else:
+            reason = "its response was not received"
         return (
-            "The MCP gateway tool may have completed, but its response exceeded the safety "
-            "limit, so the outcome is unknown. Do not retry a mutation automatically; "
-            "verify the remote system first."
+            f"The MCP gateway tool may have completed, but {reason}, so the outcome is "
+            "unknown. Do not retry a mutation automatically; verify the remote system first."
         )
     status_error = next(
         (item for item in nested if isinstance(item, httpx.HTTPStatusError)),
@@ -100,12 +104,6 @@ def describe_mcp_gateway_error(
 
     if any(isinstance(item, (httpx.ConnectError, httpx.ConnectTimeout)) for item in nested):
         return f"Could not reach the MCP gateway. Check {MCP_GATEWAY_URL_ENV} and network access."
-    if mutation_outcome_unknown:
-        return (
-            "The MCP gateway tool may have completed, but its response was not received, "
-            "so the outcome is unknown. Do not retry a mutation automatically; "
-            "verify the remote system first."
-        )
     if any(isinstance(item, TimeoutError) for item in nested):
         return f"MCP gateway operation timed out after {timeout_seconds:g} seconds."
     if any("server returned an error response" in str(item).lower() for item in nested):

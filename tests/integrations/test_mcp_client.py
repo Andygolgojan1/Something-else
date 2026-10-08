@@ -107,6 +107,34 @@ def test_shared_client_normalizes_list_and_tool_results(monkeypatch: pytest.Monk
     }
 
 
+def test_tool_call_timeout_is_marked_as_outcome_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class SlowSession:
+        async def call_tool(
+            self, _name: str, _arguments: dict[str, object]
+        ) -> types.CallToolResult:
+            await asyncio.sleep(1)
+            raise AssertionError("unreachable")
+
+    @asynccontextmanager
+    async def open_session(*_args: object, **_kwargs: object) -> AsyncIterator[SlowSession]:
+        yield SlowSession()
+
+    monkeypatch.setattr(mcp_client, "open_mcp_session", open_session)
+
+    with pytest.raises(mcp_client.McpToolCallOutcomeUnknownError) as error:
+        mcp_client.call_mcp_tool(
+            _Config(timeout_seconds=0.01),
+            "restart_service",
+            timeout_call=False,
+            timeout_entire_operation=True,
+            **_session_options(),
+        )
+
+    assert isinstance(error.value.__cause__, TimeoutError)
+
+
 def test_shared_client_collects_all_tool_pages(monkeypatch: pytest.MonkeyPatch) -> None:
     requested_cursors: list[str | None] = []
 
