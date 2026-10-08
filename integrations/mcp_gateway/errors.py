@@ -12,6 +12,7 @@ from config.constants.mcp_gateway import (
     MCP_GATEWAY_DEFAULT_TIMEOUT_SECONDS,
     MCP_GATEWAY_URL_ENV,
 )
+from integrations.mcp_client import McpResponseTooLargeError
 
 _BEARER_SECRET = re.compile(r"(?i)bearer\s+[^\s,;]+")
 
@@ -58,12 +59,21 @@ def describe_mcp_gateway_error(
     *,
     auth_token: str,
     timeout_seconds: float = MCP_GATEWAY_DEFAULT_TIMEOUT_SECONDS,
+    mutation_outcome_unknown: bool = False,
 ) -> str:
     """Return a stable, secret-safe explanation for a gateway failure."""
     if isinstance(exc, McpGatewayError):
         return sanitize_mcp_gateway_text(str(exc), auth_token=auth_token)
 
     nested = _exceptions(exc)
+    if mutation_outcome_unknown and any(
+        isinstance(item, McpResponseTooLargeError) for item in nested
+    ):
+        return (
+            "The MCP gateway tool may have completed, but its response exceeded the safety "
+            "limit, so the outcome is unknown. Do not retry a mutation automatically; "
+            "verify the remote system first."
+        )
     status_error = next(
         (item for item in nested if isinstance(item, httpx.HTTPStatusError)),
         None,
@@ -105,6 +115,7 @@ def safe_request_error(
     *,
     auth_token: str,
     timeout_seconds: float = MCP_GATEWAY_DEFAULT_TIMEOUT_SECONDS,
+    mutation_outcome_unknown: bool = False,
 ) -> McpGatewayRequestError:
     """Create a detached safe exception suitable for logs and tool output."""
     return McpGatewayRequestError(
@@ -112,5 +123,6 @@ def safe_request_error(
             exc,
             auth_token=auth_token,
             timeout_seconds=timeout_seconds,
+            mutation_outcome_unknown=mutation_outcome_unknown,
         )
     )

@@ -28,6 +28,7 @@ from surfaces.interactive_shell.prompt_history.policy import (
         ("github_pat_" + "x" * 82, "[REDACTED:github_pat]"),
         ("sk-ant-" + "y" * 90, "[REDACTED:anthropic_key]"),
         ("sk-" + "z" * 48, "[REDACTED:openai_key]"),
+        ("prefixsk-" + "z" * 48, "[REDACTED:openai_key]"),
         ("xoxb-12345-67890-abcdefghijklmn", "[REDACTED:slack_token]"),
         ("sk_live_" + "Q" * 24, "[REDACTED:stripe_key]"),
         (
@@ -95,8 +96,16 @@ def test_pem_block_inside_history_entry_does_not_leak_to_disk(tmp_path: Path) ->
     assert "-----BEGIN EC PRIVATE KEY-----" not in contents
 
 
-def test_natural_language_is_left_alone() -> None:
-    text = "investigate api errors after the redis cluster restarted at 12:30"
+@pytest.mark.parametrize(
+    "text",
+    [
+        "investigate api errors after the redis cluster restarted at 12:30",
+        "token: expiry handling",
+        "secret = unavailable",
+        "How do I rotate a password: safely?",
+    ],
+)
+def test_natural_language_is_left_alone(text: str) -> None:
     assert redact_text(text) == text
 
 

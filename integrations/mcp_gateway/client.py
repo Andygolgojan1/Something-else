@@ -121,6 +121,7 @@ class McpGatewayClient:
                 exc,
                 auth_token=self.config.auth_token,
                 timeout_seconds=self.config.timeout_seconds,
+                mutation_outcome_unknown=not read_only,
             )
         else:
             return safe_tool_result(result, auth_token=self.config.auth_token)

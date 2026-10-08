@@ -111,6 +111,7 @@ class _ShellApproval:
             action_summary=shown_name,
             confirm_fn=self.confirm_fn,
             is_tty=self.is_tty,
+            allow_trust_mode_bypass=False,
         )
         return approved
 

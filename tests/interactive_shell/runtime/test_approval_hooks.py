@@ -128,6 +128,32 @@ def test_mcp_mutations_prompt_at_default_auto_level() -> None:
     assert "sample-token" not in printed.getvalue()
 
 
+def test_mcp_mutations_still_prompt_in_trust_mode() -> None:
+    session = Session()
+    session.terminal.trust_mode = True
+    console, _printed = _console()
+    asked: list[str] = []
+
+    def confirm(prompt: str) -> str:
+        asked.append(prompt)
+        return "y"
+
+    hooks = with_shell_approval(
+        None, session=session, console=console, confirm_fn=confirm, is_tty=True
+    )
+    assert hooks.before_tool_call is not None
+
+    decision = hooks.before_tool_call(
+        _request(
+            "call_mcp_gateway_tool",
+            {"tool_name": "restart_service", "arguments": {"service": "prod"}},
+        )
+    )
+
+    assert decision == BeforeToolCallResult(approved=True)
+    assert len(asked) == 1
+
+
 def test_generated_code_asks_at_every_auto_level() -> None:
     assert {"execute_python_code", "call_mcp_gateway_tool"} <= ASK_AT_EVERY_AUTO_LEVEL_TOOL_NAMES
 

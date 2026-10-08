@@ -11,6 +11,7 @@ import pytest
 from pydantic import ValidationError
 
 from config.constants.mcp_gateway import MCP_GATEWAY_TOOL_RESPONSE_MAX_BYTES
+from integrations.mcp_client import McpResponseTooLargeError
 from integrations.mcp_gateway import (
     McpGatewayClient,
     McpGatewayConfig,
@@ -138,6 +139,23 @@ def test_client_caps_tool_response_before_protocol_parsing() -> None:
     assert call_tool.call_args.kwargs["response_byte_limit"] == (
         MCP_GATEWAY_TOOL_RESPONSE_MAX_BYTES
     )
+
+
+def test_oversized_mutation_response_reports_unknown_outcome() -> None:
+    config = McpGatewayConfig(url="https://mcp.example.test/mcp")
+    failure = ExceptionGroup(
+        "transport failed",
+        [McpResponseTooLargeError("MCP HTTP response exceeded the configured byte limit")],
+    )
+    with (
+        patch(
+            "integrations.mcp_gateway.client.list_mcp_tools",
+            return_value=[types.Tool(name="restart_service", input_schema={})],
+        ),
+        patch("integrations.mcp_gateway.client.call_mcp_tool", side_effect=failure),
+        pytest.raises(McpGatewayRequestError, match="outcome is unknown.*Do not retry"),
+    ):
+        McpGatewayClient(config).call_tool("restart_service")
 
 
 def test_client_reports_the_effective_timeout() -> None:

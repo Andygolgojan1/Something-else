@@ -43,7 +43,7 @@ Only HTTPS endpoints are accepted, except plaintext HTTP on localhost or another
 | `call_mcp_gateway_read_tool` | Calls only an exact name certified in `MCP_GATEWAY_READ_ONLY_TOOLS` |
 | `call_mcp_gateway_tool` | Calls any allowed name through the local interactive shell's approval-required path |
 
-Chat gateways and unattended schedules can use the listing and certified read-only call tool. They do not receive the external-action call tool. Mutating MCP calls are available only in the local interactive shell, where the operator can review and approve the exact arguments. A tool name that is disallowed or no longer advertised is refused before its MCP invocation.
+Chat gateways and unattended schedules can use the listing and certified read-only call tool. They do not receive the external-action call tool. Mutating MCP calls are available only in the local interactive shell, where the operator must review and approve the exact arguments. Trust mode does not bypass this MCP mutation confirmation. A tool name that is disallowed or no longer advertised is refused before its MCP invocation.
 
 ## Validate with the local sample
 

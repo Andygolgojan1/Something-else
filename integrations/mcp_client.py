@@ -85,7 +85,7 @@ class _BoundedResponseStream(httpx.AsyncByteStream):
 
 def _response_size_hook(limit: int) -> Callable[[httpx.Response], Awaitable[None]]:
     async def _enforce(response: httpx.Response) -> None:
-        if response.request.method != "POST":
+        if response.request.method not in {"GET", "POST"}:
             return
         content_encoding = response.headers.get("content-encoding", "identity").lower()
         if content_encoding not in {"", "identity"}:

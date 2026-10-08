@@ -225,11 +225,12 @@ class _ChunkedResponseStream(httpx.AsyncByteStream):
         self.closed = True
 
 
-def test_tool_discovery_stops_reading_a_chunked_oversized_response() -> None:
+@pytest.mark.parametrize("method", ["GET", "POST"])
+def test_tool_discovery_stops_reading_a_chunked_oversized_response(method: str) -> None:
     stream = _ChunkedResponseStream([b"1234", b"56", b"unread"])
     response = httpx.Response(
         200,
-        request=httpx.Request("POST", "https://mcp.example.test/mcp"),
+        request=httpx.Request(method, "https://mcp.example.test/mcp"),
         stream=stream,
     )
 
