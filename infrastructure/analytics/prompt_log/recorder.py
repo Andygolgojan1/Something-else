@@ -332,13 +332,33 @@ class PromptRecorder:
             else int((time.monotonic() - self._start) * 1000)
         )
 
+    def _append_conversation_turn(self, response: str, *, latency_ms: int) -> None:
+        """Write one prompt/reply pair to the session file for ``/resume``."""
+        with contextlib.suppress(Exception):
+            self._session.store.append_turn_detail(
+                self._session_id,
+                _TURN_TO_SESSION_KIND.get(self._turn_kind, self._turn_kind),
+                self._prompt,
+                response=response,
+                turn_id=self._turn_id,
+                model=self._model or None,
+                provider=self._provider or None,
+                latency_ms=latency_ms,
+            )
+
     def _response_for_emit(self) -> str:
-        """Resolve the assistant text written to sinks at flush time."""
-        if self._response.strip():
-            return self._response
-        if self._error_message.strip():
-            return self._error_message
-        return _fallback_terminal_response(prompt=self._prompt)
+        """Resolve the assistant text written to analytics sinks at flush time."""
+        return self._conversation_response() or _fallback_terminal_response(prompt=self._prompt)
+
+    def _conversation_response(self) -> str | None:
+        """The assistant text that genuinely belongs in the conversation, if any.
+
+        Analytics wants a response on every row and falls back to synthetic filler
+        when a turn produced no model output. The session file must not take that
+        filler: it is replayed as the assistant's reply and fed back to the model
+        as its own prior turn. A turn with no output simply has no reply.
+        """
+        return self._response.strip() or self._error_message.strip() or None
 
     def flush(self) -> None:
         if self._flushed:
@@ -376,20 +396,15 @@ class PromptRecorder:
             with contextlib.suppress(OSError):
                 append_prompt_log_record(path=self._config.log_path, record=record)
 
-        # Also write enriched turn to the session file so /resume can restore context.
-        with contextlib.suppress(Exception):
-            session_kind = _TURN_TO_SESSION_KIND.get(self._turn_kind, self._turn_kind)
-            self._session.store.append_turn_detail(
-                self._session_id,
-                session_kind,
-                self._prompt,
-                response=response_text or None,
-                turn_id=self._turn_id,
-                model=self._model or None,
-                provider=self._provider or None,
-                latency_ms=latency_ms,
-            )
-
+        # Also write enriched turn to the session file so /resume can restore
+        # context. Only a turn that produced a reply belongs there: the store
+        # writes the prompt unconditionally and the reply only if present, so
+        # persisting a reply-less turn would leave an unpaired user message in
+        # ``cli_agent_messages`` — adjacent user roles on the next resume, and a
+        # bookkeeping line such as ``/resume`` fed back to the model as context.
+        conversation_response = self._conversation_response()
+        if conversation_response is not None:
+            self._append_conversation_turn(conversation_response, latency_ms=latency_ms)
         if self._config.posthog_enabled:
             with contextlib.suppress(Exception):
                 # When the conversational LLM was attempted but the provider

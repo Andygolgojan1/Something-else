@@ -7,6 +7,7 @@ import logging
 from core.agent_harness import SessionManager
 from core.agent_harness.spi.cancel import HostCancelReason
 from core.agent_harness.spi.session_goal import SessionGoal, apply_session_goal_control
+from infrastructure.terminal.prompt_support import ctrl_c_exit_interrupted
 from infrastructure.turn_host.session_lock import session_execution_lock
 from surfaces.interactive_shell.runtime.core.state import ReplState
 from surfaces.interactive_shell.runtime.exit_control import record_inflight_shell_exit
@@ -25,10 +26,25 @@ def close_repl_session(session: Session, state: ReplState) -> None:
     goal_control = state.requested_goal_control()
     manager = SessionManager.for_session(session)
     with session_execution_lock(session.session_id):
-        manager.refresh_from_storage(session)
-        if goal_control is not None:
-            apply_session_goal_control(session, goal_control)
-        manager.close(session)
+        try:
+            manager.refresh_from_storage(session)
+            if goal_control is not None:
+                apply_session_goal_control(session, goal_control)
+        finally:
+            # ``close`` flushes too, but a teardown Ctrl+C raises wherever it
+            # lands and could unwind before reaching it. Persist here, where a
+            # ``finally`` guarantees it: ``flush`` never raises.
+            manager.flush(session)
+        # Never wait on the closing memory pass: it is an LLM call over the whole
+        # transcript (seconds, and worse on a resumed session), and holding the
+        # user's terminal for a background nicety is not a trade worth making.
+        # It goes to the shared daemon worker, the way gateway rotation does it.
+        # An exit the user already interrupted does not even start one.
+        manager.close(
+            session,
+            extract_memory=not ctrl_c_exit_interrupted(),
+            wait_for_memory_extraction=False,
+        )
 
 
 def close_repl_session_after_detached_worker(

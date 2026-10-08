@@ -9,6 +9,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -45,6 +46,12 @@ from surfaces.interactive_shell.runtime.startup import initial_input as startup_
 from surfaces.interactive_shell.session import Session
 from surfaces.interactive_shell.ui import input_prompt
 from surfaces.interactive_shell.ui.input_prompt import completion as prompt_completion
+from surfaces.interactive_shell.ui.input_prompt.alternate_scroll import (
+    ALTERNATE_SCROLL_OFF,
+    ALTERNATE_SCROLL_RESTORE,
+    ALTERNATE_SCROLL_SAVE,
+    alternate_scroll_disabled,
+)
 from surfaces.interactive_shell.ui.input_prompt.completion import ShellCompleter
 from surfaces.interactive_shell.ui.input_prompt.key_bindings import (
     _SHIFT_ENTER_SEQUENCE,
@@ -174,12 +181,98 @@ def test_build_prompt_session_uses_persistent_history(
     assert prompt.app.key_bindings is not None
 
 
-def test_full_screen_transcript_keeps_native_mouse_selection_available() -> None:
-    """Mouse reporting prevents the terminal from selecting transcript text."""
+def test_full_screen_transcript_takes_the_wheel_through_mouse_reporting() -> None:
+    """The terminal only emits wheel events while reporting is on.
+
+    This is what decides which bytes arrive: with reporting off the terminal
+    falls back to alternate scroll and sends Up instead, which the composer
+    answers with history recall. No input-level test can stand in for it —
+    prompt_toolkit parses an injected mouse sequence either way.
+    """
     with create_app_session(input=DummyInput(), output=DummyOutput()):
         prompt = input_prompt.build_prompt_session(transcript=TranscriptControl(TranscriptStore()))
 
+    assert prompt.app.renderer.mouse_support() is True
+
+
+def test_a_bare_composer_leaves_mouse_reporting_off() -> None:
+    """No transcript means no viewport to drive, so selection stays unclaimed."""
+    with create_app_session(input=DummyInput(), output=DummyOutput()):
+        prompt = input_prompt.build_prompt_session()
+
     assert prompt.app.renderer.mouse_support() is False
+
+
+# SGR wheel-up over the transcript window: button 64, column 10, row 3.
+_WHEEL_UP_OVER_TRANSCRIPT = "\x1b[<64;10;3M"
+
+
+async def _settle(predicate: Callable[[], bool], timeout: float = 5.0) -> bool:
+    """Poll until the app reaches a state, rather than racing a fixed sleep."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        await asyncio.sleep(0.01)
+    return False
+
+
+@pytest.mark.asyncio
+async def test_a_wheel_notch_scrolls_the_transcript_and_leaves_the_composer_alone(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Routed to the composer instead, a notch recalled history over the input."""
+    import config.constants as const_module
+
+    monkeypatch.setattr(const_module, "OPENSRE_HOME_DIR", tmp_path)
+    monkeypatch.setattr("config.constants.paths.OPENSRE_HOME_DIR", tmp_path)
+    # A history entry the composer would show if the wheel reached it as Up.
+    (tmp_path / "interactive_history").write_text("\n# 2026-10-07 00:00:00.000000\n+4 5 6 7\n")
+
+    store = TranscriptStore()
+    for row in range(200):
+        store.append_text(f"transcript line {row}")
+    control = TranscriptControl(store)
+
+    with (
+        create_pipe_input() as pipe_input,
+        create_app_session(input=pipe_input, output=DummyOutput()),
+    ):
+        prompt = input_prompt.build_prompt_session(transcript=control)
+        app = prompt.app
+        task = asyncio.ensure_future(prompt.prompt_async())
+        try:
+            assert await _settle(lambda: app.is_running and bool(app.renderer.mouse_handlers))
+
+            pipe_input.send_text(_WHEEL_UP_OVER_TRANSCRIPT)
+
+            assert await _settle(lambda: control.scrolled_back), "the wheel never reached it"
+            assert app.current_buffer.text == ""
+        finally:
+            app.exit(result="")
+            await asyncio.gather(task, return_exceptions=True)
+
+
+def test_the_alternate_scroll_guard_restores_what_the_terminal_had() -> None:
+    """Forcing the mode back on would enable it where the terminal had it off."""
+    stream = io.StringIO()
+    stream.isatty = lambda: True  # type: ignore[method-assign]
+
+    with alternate_scroll_disabled(stream):
+        assert stream.getvalue() == ALTERNATE_SCROLL_SAVE + ALTERNATE_SCROLL_OFF
+
+    assert stream.getvalue().endswith(ALTERNATE_SCROLL_RESTORE)
+
+
+def test_alternate_scroll_guard_leaves_a_non_tty_untouched() -> None:
+    """Piped output must not collect escape sequences."""
+    stream = io.StringIO()
+
+    with alternate_scroll_disabled(stream):
+        pass
+
+    assert stream.getvalue() == ""
 
 
 def test_build_prompt_session_installs_growing_bordered_composer() -> None:

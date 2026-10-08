@@ -15,6 +15,7 @@ from infrastructure.analytics.capture import capture_interactive_shell_rendered
 from infrastructure.analytics.github_identity import identify_saved_github_username
 from infrastructure.analytics.usage_context import claim_process_session_id
 from infrastructure.logging import install_shell_log_handler, quiet_noisy_third_party_loggers
+from infrastructure.terminal.prompt_support import begin_ctrl_c_exit
 from infrastructure.terminal.theme import set_active_theme
 from surfaces.interactive_shell.controller import InteractiveShellController
 from surfaces.interactive_shell.runtime.context import create_repl_runtime
@@ -33,6 +34,9 @@ from surfaces.interactive_shell.runtime.startup.tool_registry_prewarm import (
     start_tool_registry_prewarm,
 )
 from surfaces.interactive_shell.session import Session
+from surfaces.interactive_shell.ui.input_prompt.alternate_scroll import (
+    alternate_scroll_disabled,
+)
 from surfaces.interactive_shell.ui.terminal_ui import render_terminal_ui
 from surfaces.interactive_shell.ui.transcript_view import TranscriptStore, record_startup_output
 from surfaces.shared.terminal.banner import ResponsiveLaunchBanner, animate_launch_wordmark
@@ -121,23 +125,36 @@ async def run_repl_async(
         tools_ready()
 
     try:
-        with record_startup_output(transcript):
-            started = _prepare_shell_start(session, out, resume_session_id, startup_work)
-        if not started:
-            return 1
-        await InteractiveShellController(
-            runtime_context,
-            config=cfg,
-            console=out,
-            startup_work=startup_work,
-            transcript=transcript,
-        ).start_interactive_shell()
+        # Mouse reporting carries the wheel to the transcript wherever it reaches
+        # us. Where it does not (tmux with ``mouse off``), the terminal would turn
+        # wheel notches into Up keys and recall history into the composer instead.
+        with alternate_scroll_disabled():
+            with record_startup_output(transcript):
+                started = _prepare_shell_start(session, out, resume_session_id, startup_work)
+            if not started:
+                return 1
+            await InteractiveShellController(
+                runtime_context,
+                config=cfg,
+                console=out,
+                startup_work=startup_work,
+                transcript=transcript,
+            ).start_interactive_shell()
         return 0
     finally:
-        startup_work.close()
-        join_first_turn_warmup()
-        # True end-of-run teardown: persist and release the session's resources.
-        close_repl_session(session, runtime_context.state)
+        # The exit is settled however it was asked for (Ctrl+C, Ctrl+D, /exit),
+        # and the prompt is off screen, so SIGINT reaches the process handler
+        # again: one press must end the run rather than re-open the
+        # double-press gate on an exit the user already confirmed.
+        begin_ctrl_c_exit()
+        try:
+            startup_work.close()
+            join_first_turn_warmup()
+        finally:
+            # Nested, because the drains above can block and a teardown Ctrl+C
+            # now raises wherever it lands. True end-of-run teardown persists
+            # and releases the session, and that is not the user's to skip.
+            close_repl_session(session, runtime_context.state)
 
 
 def _prepare_shell_start(

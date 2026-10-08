@@ -1532,3 +1532,68 @@ async def test_running_dispatch_keeps_a_completed_plan() -> None:
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             _ = await task
+
+
+def test_shell_teardown_never_waits_on_the_closing_memory_pass(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The shell schedules the closing pass and leaves; an interrupt skips it entirely.
+
+    Waiting held the terminal for seconds — longer on a resumed session, whose
+    transcript the pass reads in full — with nothing on screen but a spinner.
+    """
+    import surfaces.interactive_shell.runtime.session_shutdown as session_shutdown
+    from core.agent_harness.session import SessionManager
+    from surfaces.interactive_shell.runtime.core.state import ReplState
+    from surfaces.interactive_shell.session import Session
+
+    captured: dict[str, object] = {}
+
+    def _close(_self: object, _session: object, **kwargs: object) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(SessionManager, "close", _close)
+
+    monkeypatch.setattr(session_shutdown, "ctrl_c_exit_interrupted", lambda: False)
+    session_shutdown.close_repl_session(Session(), ReplState())
+    assert captured["extract_memory"] is True
+    assert captured["wait_for_memory_extraction"] is False
+
+    monkeypatch.setattr(session_shutdown, "ctrl_c_exit_interrupted", lambda: True)
+    session_shutdown.close_repl_session(Session(), ReplState())
+    assert captured["extract_memory"] is False
+
+
+def test_a_teardown_interrupt_still_persists_the_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A Ctrl+C during teardown may cost the memory pass, never the transcript.
+
+    The press raises wherever it lands once the exit is armed, so the flush has
+    to sit in a finally ahead of the only call that blocks.
+    """
+    import surfaces.interactive_shell.runtime.session_shutdown as session_shutdown
+    from core.agent_harness.session import SessionManager
+    from surfaces.interactive_shell.runtime.core.state import ReplState
+    from surfaces.interactive_shell.session import Session
+
+    flushed: list[str] = []
+
+    def _refresh(_self: object, _session: object) -> None:
+        raise KeyboardInterrupt
+
+    def _flush(_self: object, session: Session) -> None:
+        flushed.append(session.session_id)
+
+    def _close(_self: object, _session: object, **_kwargs: object) -> None:
+        pytest.fail("close() must not run once the interrupt has unwound past it")
+
+    monkeypatch.setattr(SessionManager, "refresh_from_storage", _refresh)
+    monkeypatch.setattr(SessionManager, "flush", _flush)
+    monkeypatch.setattr(SessionManager, "close", _close)
+
+    session = Session()
+    with pytest.raises(KeyboardInterrupt):
+        session_shutdown.close_repl_session(session, ReplState())
+
+    assert flushed == [session.session_id]

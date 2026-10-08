@@ -314,6 +314,83 @@ def test_prompt_recorder_uses_prompt_fallback_when_response_empty(
     assert captured[0]["$ai_output_choices"][0]["content"] == "terminal turn handled: /help"
 
 
+def test_prompt_fallback_never_reaches_the_session_conversation(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Analytics wants a response on every row; the conversation must not take it.
+
+    The fallback was written to the session file as the assistant's reply, so
+    ``/resume`` replayed "terminal turn handled: /resume" as model prose and fed
+    it back to the model as its own prior turn.
+    """
+    cfg = PromptLogConfig(
+        enabled=True,
+        local_enabled=False,
+        posthog_enabled=False,
+        redact=False,
+        max_chars=1000,
+        log_path=tmp_path / "prompt_log.jsonl",
+    )
+    monkeypatch.setattr(
+        "infrastructure.analytics.prompt_log.recorder.PromptLogConfig.load", lambda: cfg
+    )
+    monkeypatch.setattr(
+        "surfaces.shared.integration_telemetry.build_turn_integration_snapshot",
+        lambda _session: {},
+    )
+    written: list[str | None] = []
+
+    def _append_turn_detail(_session_id, _kind, _prompt, *, response=None, **_kwargs):
+        written.append(response)
+
+    session = Session()
+    monkeypatch.setattr(session.store, "append_turn_detail", _append_turn_detail)
+    recorder = PromptRecorder.start(session=session, text="/resume", turn_kind="agent")
+    assert recorder is not None
+    recorder.set_response("   ")
+    recorder.flush()
+
+    assert written == []
+
+
+def test_a_reply_less_turn_leaves_no_orphan_user_message(monkeypatch, tmp_path: Path) -> None:
+    """`append_turn_detail` writes the prompt unconditionally and the reply only
+    if present, so persisting a reply-less turn left an unpaired user message —
+    adjacent user roles in `cli_agent_messages` on the next resume, and a
+    bookkeeping line such as `/resume` handed back to the model as context.
+    """
+    cfg = PromptLogConfig(
+        enabled=True,
+        local_enabled=False,
+        posthog_enabled=False,
+        redact=False,
+        max_chars=1000,
+        log_path=tmp_path / "prompt_log.jsonl",
+    )
+    monkeypatch.setattr(
+        "infrastructure.analytics.prompt_log.recorder.PromptLogConfig.load", lambda: cfg
+    )
+    monkeypatch.setattr(
+        "surfaces.shared.integration_telemetry.build_turn_integration_snapshot",
+        lambda _session: {},
+    )
+    session = Session()
+
+    recorder = PromptRecorder.start(session=session, text="/resume", turn_kind="agent")
+    assert recorder is not None
+    recorder.flush()
+
+    assert session.agent.messages == []
+
+    answered = PromptRecorder.start(session=session, text="why is redis slow?", turn_kind="agent")
+    assert answered is not None
+    answered.set_response("Pool exhaustion.")
+    answered.flush()
+
+    roles = [role for role, _ in session.agent.messages]
+    assert roles == [] or roles == ["user", "assistant"]
+
+
 def test_prompt_recorder_set_error_adds_structured_properties(monkeypatch, tmp_path: Path) -> None:
     captured: list[dict[str, object]] = []
     cfg = PromptLogConfig(
