@@ -283,6 +283,12 @@ if TYPE_CHECKING:
         HOSTED_GATEWAY_CAPABILITY as HOSTED_GATEWAY_CAPABILITY,
     )
     from config.constants.capabilities import (
+        MCP_GATEWAY_MUTATION_CAPABILITY as MCP_GATEWAY_MUTATION_CAPABILITY,
+    )
+    from config.constants.capabilities import (
+        MCP_GATEWAY_MUTATION_TOOL as MCP_GATEWAY_MUTATION_TOOL,
+    )
+    from config.constants.capabilities import (
         SCHEDULER_HOST_CAPABILITY as SCHEDULER_HOST_CAPABILITY,
     )
     from config.constants.capabilities import (

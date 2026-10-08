@@ -214,6 +214,8 @@ EXPORTS: dict[str, str] = {
     "PROMPT_PROGRESS_PLAN_OMITTED": "gateway",
     "PROMPT_RESULT_RETENTION_SECONDS": "gateway",
     "HOSTED_GATEWAY_CAPABILITY": "capabilities",
+    "MCP_GATEWAY_MUTATION_CAPABILITY": "capabilities",
+    "MCP_GATEWAY_MUTATION_TOOL": "capabilities",
     "SCHEDULER_HOST_CAPABILITY": "capabilities",
     "SCHEDULER_HOST_IN_PROCESS": "capabilities",
     "PROMPT_ROUTE_PATH": "gateway",
