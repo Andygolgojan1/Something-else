@@ -33,6 +33,7 @@ from config.secrets.store import (
     resolve_stored_secret,
     save_secret,
 )
+from config.sovereign import sovereign_mode_enabled
 
 _VERSION = 1
 _DEFAULT_ACCOUNT_LLM_MODEL = "gpt-5.4-mini"
@@ -194,7 +195,13 @@ def delete_account_record() -> None:
 
 
 def resolve_account_token() -> str:
-    """Resolve the OpenSRE account bearer token without exposing its source."""
+    """Resolve the OpenSRE account bearer token without exposing its source.
+
+    Sovereign mode resolves no token, which turns off the hosted LLM route and
+    every webapp call that authenticates with it.
+    """
+    if sovereign_mode_enabled():
+        return ""
     return resolve_secret(OPENSRE_ACCOUNT_TOKEN_ENV)
 
 
@@ -205,6 +212,8 @@ def agent_bearer_token() -> str:
     the organization. The shared fleet secret is a fallback only while
     deployments move to the token; the webapp refuses it unless opted in.
     """
+    if sovereign_mode_enabled():
+        return ""
     return resolve_account_token() or (os.getenv(USAGE_SECRET_ENV) or "").strip()
 
 

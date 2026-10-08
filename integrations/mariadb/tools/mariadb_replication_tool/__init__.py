@@ -4,6 +4,7 @@ from typing import Any
 
 from core.domain.types.evidence import record_evidence_entry
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from core.tool_framework.utils import call_db_tool_with_default_db_warning
 from integrations.mariadb import (
@@ -54,6 +55,7 @@ def _map_get_mariadb_replication_status(
 
 @tool(
     name="get_mariadb_replication_status",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     description="Retrieve MariaDB replication status including I/O and SQL thread state, lag, and errors from SHOW ALL SLAVES STATUS.",
     source="mariadb",
     surfaces=(ToolSurface.CHAT,),

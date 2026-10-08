@@ -16,6 +16,7 @@ from config.constants.tooling import ToolBlockedBy, ToolSkippedBy
 from core.domain.types.tools import ToolRole
 from core.llm.types import ToolCall
 from core.tool.contracts import AgentTool, AgentToolContext, RuntimeTool
+from core.tool.policy import tool_policy_violation
 from infrastructure.observability.errors.boundary import report_exception
 from infrastructure.observability.errors.service import is_service_unreachable
 from infrastructure.observability.trace.observations import (
@@ -655,6 +656,22 @@ def _execute_one_tool_call(
 
         source = str(getattr(tool, "source", "unknown"))
         span_attrs["source"] = source
+        # The operator policy is a ceiling every surface shares, so it runs
+        # before any host hook can approve the call.
+        policy_reason = tool_policy_violation(tool, tc.name)
+        if policy_reason is not None:
+            mark_span_outcome(
+                span_attrs, "blocked", error=True, blocked_by=ToolBlockedBy.TOOL_POLICY.value
+            )
+            logger.info("tool_call blocked by tool policy name=%s id=%s", tc.name, tc.id)
+            return _error_result(
+                policy_reason,
+                metadata={
+                    "tool_name": tc.name,
+                    ToolBlockedBy.TOOL_POLICY: True,
+                    _BLOCKED_METADATA_KEY: True,
+                },
+            )
         request = ToolExecutionRequest(
             tool_call=tc,
             tool=tool,

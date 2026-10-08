@@ -1,0 +1,69 @@
+---
+title: "Sovereign Mode and Read-Only Tools"
+description: "Keep incident data inside your own infrastructure and stop the agent from changing anything while it investigates."
+---
+
+## Overview
+
+Two switches prepare OpenSRE for a production environment:
+
+| Env var | What it does |
+| --- | --- |
+| `OPENSRE_SOVEREIGN_MODE=1` | No OpenSRE account, hosted model, analytics, or error reporting. Model calls go only to the provider you configure. |
+| `OPENSRE_TOOL_POLICY=read_only` | The agent can only run tools that read. Anything that writes, posts, or runs commands is refused. |
+
+They are independent. Use both for a production rollout.
+
+## Sovereign mode
+
+```bash
+export OPENSRE_SOVEREIGN_MODE=1
+export LLM_PROVIDER=azure-openai   # or bedrock, vertex-ai, ollama, custom-openai, ...
+```
+
+With sovereign mode on:
+
+- The interactive shell starts without signing in, and runs on your `LLM_PROVIDER`.
+- A saved OpenSRE login is ignored. `opensre account login` refuses to run.
+- Prompts, responses, and usage events are not sent to OpenSRE analytics.
+- Errors are not sent to OpenSRE's Sentry project.
+
+Set `LLM_PROVIDER` before you start the shell. If no provider is configured,
+the shell has no model to call. See [LLM providers](/platform/llm-providers)
+for the variables each provider needs. To keep logs on your own network, point
+`custom-openai` or `ollama` at a model you host, or use a cloud provider inside
+your own account (Bedrock, Azure OpenAI, Vertex AI).
+
+Sovereign mode does not remove secrets from tool output before it reaches your
+model. Run the model inside your own trust boundary, or add
+[masking](/platform/masking) rules.
+
+## Read-only tool policy
+
+```bash
+export OPENSRE_TOOL_POLICY=read_only
+```
+
+The agent can then run only tools that read. It is refused:
+
+- Shell commands and Python execution
+- Posting to Slack, Telegram, Jira, incident.io, Twilio, Google Docs, or GitHub
+- Coding agents, CI repair, and MCP passthrough tools (`call_*_tool`)
+
+The policy applies to the interactive shell, `opensre ask`, chat gateways, and
+scheduled runs. Approvals cannot override it: approving a refused call in a
+chat gateway, or passing `--allowed-tool`, still leaves it refused.
+
+To allow specific tools on purpose, for example replies in the incident channel:
+
+```bash
+export OPENSRE_TOOL_POLICY_ALLOW=slack_reply_message
+```
+
+The incident.io tool can also append summaries, so read-only mode refuses it
+entirely. Add `incident_io_incidents` to the allow list if you accept that.
+
+The policy limits what the agent asks for, not what your credentials allow.
+Give each integration read-only credentials as well: an AWS role without
+`secretsmanager:GetSecretValue`, a Kubernetes `view` role, a read-only database
+user, and a GitHub token that cannot push.

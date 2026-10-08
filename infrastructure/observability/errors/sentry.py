@@ -24,6 +24,7 @@ from config.constants import (
     SENTRY_MAX_BREADCRUMBS,
     SENTRY_TRACES_SAMPLE_RATE,
 )
+from config.sovereign import sovereign_mode_enabled
 from infrastructure.analytics.events import Event
 
 _HOME_PATH_RE: re.Pattern[str] = re.compile(r"/(?:Users|home)/[^/\s]+")
@@ -109,6 +110,7 @@ def _is_sentry_disabled() -> bool:
         os.getenv("OPENSRE_NO_TELEMETRY", "0") == "1"
         or os.getenv("OPENSRE_SENTRY_DISABLED", "0") == "1"
         or os.getenv("DO_NOT_TRACK", "0") == "1"
+        or sovereign_mode_enabled()
     )
 
 

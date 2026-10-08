@@ -7,6 +7,7 @@ from typing import Any
 import integrations.grafana.tools._helpers as grafana_helpers
 from core.domain.pipeline_spans import extract_pipeline_spans as _extract_pipeline_spans
 from core.domain.types.evidence import record_evidence_entry
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from core.tool_framework.utils import tool_unavailable
 from infrastructure.evidence.evidence_compaction import (
@@ -59,6 +60,7 @@ def _map_grafana_traces(
 
 @tool(
     name="query_grafana_traces",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     display_name="Grafana Tempo",
     source="grafana",
     evidence_mapper=_map_grafana_traces,

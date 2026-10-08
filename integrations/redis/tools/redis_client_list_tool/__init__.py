@@ -3,6 +3,7 @@
 from typing import Any
 
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from integrations.redis import (
     RedisConfig,
@@ -14,6 +15,7 @@ from integrations.redis import (
 
 @tool(
     name="get_redis_client_list",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     description=(
         "Summarize connected Redis clients via CLIENT LIST — total connections, "
         "blocked clients (waiting on BLPOP/BRPOP/XREAD), pub/sub clients, and "

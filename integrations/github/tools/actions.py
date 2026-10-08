@@ -10,6 +10,7 @@ from typing import Any, cast
 
 from core.domain.types.evidence import record_evidence_entry
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from core.tool_framework.utils import code_host_unavailable_payload
 from integrations.github.client import GitHubApiError, GitHubRestClient
@@ -709,6 +710,7 @@ def _map_list_github_actions_workflow_runs(
 
 @tool(
     name="list_github_actions_workflow_runs",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     source="github",
     description=(
         "List GitHub Actions workflow runs for a repository, each with status, "
@@ -925,6 +927,7 @@ def _map_list_github_actions_active_runs(
 
 @tool(
     name="list_github_actions_active_runs",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     source="github",
     description="List GitHub Actions workflow runs that are currently queued or in progress.",
     use_cases=[
@@ -1054,6 +1057,7 @@ def _map_list_github_actions_run_jobs(
 
 @tool(
     name="list_github_actions_run_jobs",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     source="github",
     description="List jobs and step outcomes for a GitHub Actions workflow run.",
     use_cases=[
@@ -1188,6 +1192,7 @@ def _map_get_github_actions_step_log(
 
 @tool(
     name="get_github_actions_step_log",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     source="github",
     description="Fetch the log output for a failed GitHub Actions job step.",
     use_cases=[

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from integrations.aws.s3_client import check_s3_marker_presence
 
@@ -27,6 +28,7 @@ def _extract_check_s3_marker_params(sources: dict[str, dict]) -> dict:
 
 @tool(
     name="check_s3_marker",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     source="storage",
     description="Check if a _SUCCESS marker exists in S3 storage to verify pipeline completion.",
     use_cases=[

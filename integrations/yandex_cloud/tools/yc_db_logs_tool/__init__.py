@@ -19,6 +19,7 @@ from typing import Any
 
 from core.domain.types.evidence import record_evidence_entry
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from core.tool_framework.utils import tool_unavailable
 from integrations.yandex_cloud.availability import (
@@ -72,6 +73,7 @@ def _map_db_logs(
 
 @tool(
     name="read_yc_db_logs",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     evidence_mapper=_map_db_logs,
     surfaces=(ToolSurface.ACTION,),
     display_name="Managed Databases",

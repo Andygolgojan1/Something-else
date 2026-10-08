@@ -3,6 +3,7 @@
 from typing import Any
 
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from integrations.redis import (
     RedisConfig,
@@ -14,6 +15,7 @@ from integrations.redis import (
 
 @tool(
     name="get_redis_list_depth",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     description=(
         "Report the depth (LLEN) of a Redis list/queue key, with an optional "
         "bounded head/tail sample (LRANGE), to diagnose queue backlogs and stuck "

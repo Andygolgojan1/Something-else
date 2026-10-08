@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.domain.types.evidence import record_evidence_entry
-from core.tool import BaseTool
+from core.tool import BaseTool, SideEffectLevel
 from core.tool_framework.utils import tool_unavailable
 from integrations.jira.client import make_jira_client
 
@@ -42,6 +42,7 @@ class JiraAddCommentTool(BaseTool):
     """Add investigation findings as a comment on an existing Jira issue."""
 
     name = "jira_add_comment"
+    side_effect_level = SideEffectLevel.EXTERNAL
     source = "jira"
     description = (
         "Post investigation findings, root cause analysis, or status updates as a comment "
@@ -139,6 +140,7 @@ class JiraCreateIssueTool(BaseTool):
     """Create a Jira issue to track an incident discovered during investigation."""
 
     name = "jira_create_issue"
+    side_effect_level = SideEffectLevel.EXTERNAL
     source = "jira"
     description = (
         "Create a new Jira issue to file an incident ticket with investigation findings, "
@@ -268,6 +270,7 @@ class JiraIssueDetailTool(BaseTool):
     """Fetch full details for a specific Jira issue by key."""
 
     name = "jira_issue_detail"
+    side_effect_level = SideEffectLevel.READ_ONLY
     source = "jira"
     evidence_mapper = _map_jira_issue_detail
     description = (
@@ -368,6 +371,7 @@ class JiraSearchIssuesTool(BaseTool):
     """Search Jira issues via JQL to find related incidents, bugs, or tasks."""
 
     name = "jira_search_issues"
+    side_effect_level = SideEffectLevel.READ_ONLY
     source = "jira"
     evidence_mapper = _map_jira_search_issues
     description = (

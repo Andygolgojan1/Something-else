@@ -3,6 +3,7 @@
 from typing import Any
 
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from core.tool_framework.utils import call_db_tool_with_default_db_warning
 from integrations.azure_sql import (
@@ -15,6 +16,7 @@ from integrations.azure_sql import (
 
 @tool(
     name="get_azure_sql_current_queries",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     description=(
         "Retrieve currently running queries on Azure SQL Database above a duration"
         " threshold, including wait types and resource usage."

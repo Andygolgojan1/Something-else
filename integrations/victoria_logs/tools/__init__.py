@@ -20,7 +20,7 @@ from typing import Any, ClassVar
 
 from core.domain.types.evidence import EvidenceMapper
 from core.domain.types.tools import ToolSurface
-from core.tool import BaseTool
+from core.tool import BaseTool, SideEffectLevel
 from core.tool_framework.utils import tool_unavailable
 from integrations.victoria_logs.client import make_victoria_logs_client
 from integrations.victoria_logs.tools._evidence import map_victoria_logs_query
@@ -30,6 +30,7 @@ class VictoriaLogsTool(BaseTool):
     """Query VictoriaLogs via LogsQL to retrieve structured log evidence."""
 
     name = "victoria_logs_query"
+    side_effect_level = SideEffectLevel.READ_ONLY
     source = "victoria_logs"
     evidence_mapper: ClassVar[EvidenceMapper | None] = map_victoria_logs_query
     description = (

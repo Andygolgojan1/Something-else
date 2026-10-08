@@ -4,6 +4,7 @@ from typing import Any
 
 from core.domain.types.evidence import record_evidence_entry
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from integrations.rabbitmq import (
     RabbitMQConfig,
@@ -38,6 +39,7 @@ def _map_get_rabbitmq_node_health(
 
 @tool(
     name="get_rabbitmq_node_health",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     description="Return per-node RabbitMQ resource utilization: memory used vs. limit (with alarm flag), disk free vs. limit (with alarm flag), file descriptors, sockets, erlang process usage, and cluster partition state. Essential for diagnosing backpressure, partitions, or node crashes.",
     source="rabbitmq",
     surfaces=(ToolSurface.CHAT,),

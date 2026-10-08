@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import integrations.grafana.tools._helpers as grafana_helpers
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from core.tool_framework.utils import tool_unavailable
 from integrations.grafana.base import _epoch_ms_to_iso, _map_annotation
@@ -47,6 +48,7 @@ def _iso_to_epoch_ms(value: str) -> int:
 
 @tool(
     name="query_grafana_annotations",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     display_name="Grafana annotations",
     source="grafana",
     description=(

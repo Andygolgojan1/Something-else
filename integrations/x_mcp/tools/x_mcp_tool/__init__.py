@@ -10,7 +10,7 @@ X adds or renames individual MCP-side tools.
 from __future__ import annotations
 
 from core.domain.types.tools import ToolSurface
-from core.tool import report_run_error
+from core.tool import SideEffectLevel, report_run_error
 from core.tool_framework import tool
 from core.tool_framework.utils import (
     build_mcp_tool_listing,
@@ -127,6 +127,7 @@ def _normalize_tool_result(result: XMCPToolCallResult) -> XMCPResponse:
 
 @tool(
     name="list_x_tools",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     source="x_mcp",
     description=(
         "List the tools exposed by the configured X (Twitter) MCP server. Pass "
@@ -231,6 +232,7 @@ def list_x_tools(
 
 @tool(
     name="call_x_tool",
+    side_effect_level=SideEffectLevel.MUTATING,
     source="x_mcp",
     description=(
         "Call a named tool exposed by the configured X (Twitter) MCP server "

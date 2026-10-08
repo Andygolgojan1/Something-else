@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.domain.types.evidence import record_evidence_entry
-from core.tool import BaseTool
+from core.tool import BaseTool, SideEffectLevel
 from core.tool_framework.utils import tool_unavailable
 from infrastructure.text.truncation import truncate
 from integrations.config_models import CoralogixIntegrationConfig
@@ -90,6 +90,7 @@ class CoralogixLogsTool(BaseTool):
     """Query Coralogix DataPrime logs for error signatures and incident context."""
 
     name = "query_coralogix_logs"
+    side_effect_level = SideEffectLevel.READ_ONLY
     source = "coralogix"
     evidence_mapper = _map_query_coralogix_logs
     description = "Query Coralogix DataPrime logs for error signatures and incident context."

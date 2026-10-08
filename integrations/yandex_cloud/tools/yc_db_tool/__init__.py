@@ -6,6 +6,7 @@ from typing import Any, Final
 
 from core.domain.types.evidence import record_evidence_entry
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from core.tool_framework.utils import tool_unavailable
 from integrations.yandex_cloud.availability import (
@@ -235,6 +236,7 @@ def _map_db_cluster(
 
 @tool(
     name="list_yc_db_clusters",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     evidence_mapper=_map_db_clusters,
     surfaces=(ToolSurface.ACTION,),
     display_name="Managed Databases",
@@ -347,6 +349,7 @@ def list_yc_db_clusters(
 
 @tool(
     name="get_yc_db_cluster",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     evidence_mapper=_map_db_cluster,
     surfaces=(ToolSurface.ACTION,),
     display_name="Managed Databases",

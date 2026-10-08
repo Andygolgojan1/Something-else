@@ -6,6 +6,7 @@ from typing import Any
 
 from core.domain.types.evidence import record_evidence_entry
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from core.tool_framework.utils import tool_unavailable
 from integrations.github.envelope import normalize_github_tool_result
@@ -66,6 +67,7 @@ def _map_list_github_commits(
 
 @tool(
     name="list_github_commits",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     source="github",
     description="List recent commits for a GitHub repository through the MCP server.",
     use_cases=[

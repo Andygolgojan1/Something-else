@@ -4,6 +4,7 @@ from typing import Any
 
 from core.domain.types.evidence import record_evidence_entry
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from integrations.rabbitmq import (
     RabbitMQConfig,
@@ -37,6 +38,7 @@ def _map_get_rabbitmq_broker_overview(
 
 @tool(
     name="get_rabbitmq_broker_overview",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     description="Return a cluster-wide RabbitMQ overview: version, cluster name, total message counts, publish/deliver rates, queue/consumer/connection/channel totals, plus the alarm health-check status (memory / disk / file-descriptor alarms).",
     source="rabbitmq",
     surfaces=(ToolSurface.CHAT,),

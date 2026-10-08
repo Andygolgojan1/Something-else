@@ -3,6 +3,7 @@
 from typing import Any
 
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from core.tool_framework.utils import call_db_tool_with_default_db_warning
 from integrations.postgresql import (
@@ -15,6 +16,7 @@ from integrations.postgresql import (
 
 @tool(
     name="get_postgresql_table_stats",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     description="Retrieve PostgreSQL table statistics including size, row counts, index usage, and maintenance info.",
     source="postgresql",
     surfaces=(ToolSurface.CHAT,),

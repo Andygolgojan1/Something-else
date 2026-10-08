@@ -4,6 +4,7 @@ from typing import Any
 
 from core.domain.types.evidence import record_evidence_entry
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from integrations.clickhouse import (
     ClickHouseConfig,
@@ -44,6 +45,7 @@ def _map_get_clickhouse_system_health(
 
 @tool(
     name="get_clickhouse_system_health",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     description="Retrieve system health metrics and table statistics from a ClickHouse instance, including active queries, connections, and table sizes.",
     source="clickhouse",
     surfaces=(ToolSurface.CHAT,),

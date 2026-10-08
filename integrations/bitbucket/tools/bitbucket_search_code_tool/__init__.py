@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from core.tool_framework.utils import code_host_unavailable_payload
 from integrations.bitbucket.client import search_code
@@ -70,6 +71,7 @@ def _search_bitbucket_code_available(sources: dict[str, dict]) -> bool:
 
 @tool(
     name="search_bitbucket_code",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     description="Search code across a Bitbucket workspace or specific repository.",
     source="bitbucket",
     surfaces=(ToolSurface.CHAT,),

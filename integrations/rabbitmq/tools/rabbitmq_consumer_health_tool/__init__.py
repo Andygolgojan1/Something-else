@@ -4,6 +4,7 @@ from typing import Any
 
 from core.domain.types.evidence import record_evidence_entry
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from integrations.rabbitmq import (
     RabbitMQConfig,
@@ -47,6 +48,7 @@ def _map_get_rabbitmq_consumer_health(
 
 @tool(
     name="get_rabbitmq_consumer_health",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     description="List active RabbitMQ consumers with per-queue diagnostics: prefetch count, ack mode, active state, and the channel/connection each consumer is bound to. Helps identify stalled or missing consumers behind a backlog.",
     source="rabbitmq",
     surfaces=(ToolSurface.CHAT,),

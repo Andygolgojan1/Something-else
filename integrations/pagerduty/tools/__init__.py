@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.domain.types.evidence import record_evidence_entry
-from core.tool import BaseTool
+from core.tool import BaseTool, SideEffectLevel
 from core.tool_framework.utils import tool_unavailable
 from infrastructure.text.truncation import truncate
 from integrations.pagerduty.client import make_pagerduty_client
@@ -70,6 +70,7 @@ class PagerDutyIncidentDetailTool(BaseTool):
     """Fetch full details and activity timeline for a specific PagerDuty incident."""
 
     name = "pagerduty_incident_detail"
+    side_effect_level = SideEffectLevel.READ_ONLY
     evidence_mapper = _map_pagerduty_incident_detail
     source = "pagerduty"
     description = (
@@ -229,6 +230,7 @@ class PagerDutyIncidentsTool(BaseTool):
     """List and search PagerDuty incidents to surface active pages and their triage state."""
 
     name = "pagerduty_incidents"
+    side_effect_level = SideEffectLevel.READ_ONLY
     evidence_mapper = _map_pagerduty_incidents
     source = "pagerduty"
     description = (
@@ -395,6 +397,7 @@ class PagerDutyOnCallTool(BaseTool):
     """Fetch current on-call responders from PagerDuty escalation policies."""
 
     name = "pagerduty_oncall"
+    side_effect_level = SideEffectLevel.READ_ONLY
     evidence_mapper = _map_pagerduty_oncall
     source = "pagerduty"
     description = (
@@ -526,6 +529,7 @@ class PagerDutyServicesTool(BaseTool):
     """Fetch PagerDuty services, escalation policies, and alert routing configuration."""
 
     name = "pagerduty_services"
+    side_effect_level = SideEffectLevel.READ_ONLY
     evidence_mapper = _map_pagerduty_services
     source = "pagerduty"
     description = (

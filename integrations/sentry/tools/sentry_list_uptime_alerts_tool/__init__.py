@@ -6,7 +6,7 @@ from typing import Any
 
 from core.domain.types.evidence import record_evidence_entry
 from core.domain.types.tools import ToolSurface
-from core.tool import report_run_error
+from core.tool import SideEffectLevel, report_run_error
 from core.tool_framework import tool
 from integrations.sentry import (
     SentryConfig,
@@ -74,6 +74,7 @@ def _extract_params(sources: dict[str, dict]) -> dict[str, Any]:
 
 @tool(
     name="list_sentry_uptime_alerts",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     source="sentry",
     description=(
         "List Sentry uptime monitors and their current health (up/down). "

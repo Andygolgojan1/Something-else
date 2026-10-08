@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.domain.types.evidence import record_evidence_entry
-from core.tool import BaseTool
+from core.tool import BaseTool, SideEffectLevel
 from core.tool_framework.utils import tool_unavailable
 from integrations.temporal.client import TemporalClient, TemporalConfig
 
@@ -54,6 +54,7 @@ class TemporalNamespaceInfoTool(BaseTool):
     """
 
     name = "temporal_namespace_info"
+    side_effect_level = SideEffectLevel.READ_ONLY
     source = "temporal"
     evidence_mapper = _map_temporal_namespace_info
     description = (
@@ -191,6 +192,7 @@ class TemporalTaskQueueTool(BaseTool):
     """
 
     name = "temporal_task_queue"
+    side_effect_level = SideEffectLevel.READ_ONLY
     source = "temporal"
     evidence_mapper = _map_temporal_task_queue
     description = (
@@ -344,6 +346,7 @@ class TemporalWorkflowHistoryTool(BaseTool):
     """
 
     name = "temporal_workflow_history"
+    side_effect_level = SideEffectLevel.READ_ONLY
     source = "temporal"
     evidence_mapper = _map_temporal_workflow_history
     description = (
@@ -513,6 +516,7 @@ class TemporalWorkflowsTool(BaseTool):
     """
 
     name = "temporal_workflows"
+    side_effect_level = SideEffectLevel.READ_ONLY
     source = "temporal"
     evidence_mapper = _map_temporal_workflows
     description = (

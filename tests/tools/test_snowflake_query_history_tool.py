@@ -427,3 +427,59 @@ def test_returns_unavailable_on_request_exception(monkeypatch: pytest.MonkeyPatc
     assert result["available"] is False
     assert "connection refused" in result["error"]
     assert result["rows"] == []
+
+
+# ---------------------------------------------------------------------------
+# Read-only enforcement — model-written SQL must not mutate the warehouse
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "DELETE FROM orders",
+        "select 1; drop table orders",
+        "WITH x AS (SELECT 1) INSERT INTO orders SELECT * FROM x",
+        "CREATE OR REPLACE TABLE t AS SELECT 1",
+        "GRANT ROLE sysadmin TO USER mallory",
+    ],
+)
+def test_non_read_only_query_is_refused_before_any_request(
+    monkeypatch: pytest.MonkeyPatch, query: str
+) -> None:
+    def _fail_post(*_args: Any, **_kwargs: Any) -> MockHttpxResponse:
+        raise AssertionError("a refused query must never reach Snowflake")
+
+    monkeypatch.setattr(
+        "integrations.snowflake.tools.snowflake_query_history_tool.httpx.post", _fail_post
+    )
+
+    result = query_snowflake_history(
+        account_identifier="xy12345.us-east-1", token="sf-token", query=query
+    )
+
+    assert result["available"] is False
+    assert "non-read-only" in result["error"]
+
+
+def test_read_query_with_write_words_in_literals_runs_as_one_statement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def _fake_post(url: str, headers: dict[str, str], json: dict[str, Any], timeout: float):
+        captured["payload"] = json
+        return MockHttpxResponse({"data": []})
+
+    monkeypatch.setattr(
+        "integrations.snowflake.tools.snowflake_query_history_tool.httpx.post", _fake_post
+    )
+
+    result = query_snowflake_history(
+        account_identifier="xy12345.us-east-1",
+        token="sf-token",
+        query="SELECT replace(query_text, 'a', 'b') FROM t WHERE query_text ILIKE '%drop table%'",
+    )
+
+    assert result["available"] is True
+    assert captured["payload"]["parameters"] == {"MULTI_STATEMENT_COUNT": "1"}

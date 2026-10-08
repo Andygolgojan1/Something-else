@@ -34,6 +34,7 @@ from config.constants.analytics import (
     ANALYTICS_PROPERTIES_VERSION,
     ANALYTICS_SOURCE,
 )
+from config.sovereign import sovereign_mode_enabled
 from config.version import get_opensre_version
 from infrastructure.analytics.analytics_runtime import (
     detect_analytics_runtime,
@@ -174,6 +175,7 @@ def analytics_opted_out() -> bool:
         os.getenv("OPENSRE_NO_TELEMETRY", "0") == "1"
         or os.getenv(ANALYTICS_DISABLED_ENV, "0") == "1"
         or os.getenv("DO_NOT_TRACK", "0") == "1"
+        or sovereign_mode_enabled()
     )
 
 

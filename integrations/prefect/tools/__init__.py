@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.domain.types.evidence import record_evidence_entry
-from core.tool import BaseTool
+from core.tool import BaseTool, SideEffectLevel
 from core.tool_framework.utils import tool_unavailable
 from infrastructure.text.truncation import truncate
 from integrations.prefect.client import make_prefect_client
@@ -64,6 +64,7 @@ class PrefectFlowRunsTool(BaseTool):
     """Fetch and triage recent Prefect flow runs, surfacing failures for RCA."""
 
     name = "prefect_flow_runs"
+    side_effect_level = SideEffectLevel.READ_ONLY
     source = "prefect"
     evidence_mapper = _map_prefect_flow_runs
     description = (
@@ -293,6 +294,7 @@ class PrefectWorkerHealthTool(BaseTool):
     """Inspect Prefect work pool and worker health to identify orchestration bottlenecks."""
 
     name = "prefect_worker_health"
+    side_effect_level = SideEffectLevel.READ_ONLY
     source = "prefect"
     evidence_mapper = _map_prefect_worker_health
     description = (

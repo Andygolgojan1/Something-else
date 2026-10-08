@@ -3,6 +3,7 @@
 from typing import Any
 
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from integrations.mongodb_atlas import (
     MongoDBAtlasConfig,
@@ -17,6 +18,7 @@ from integrations.mongodb_atlas.tools._evidence import (
 
 @tool(
     name="get_mongodb_atlas_performance_advisor",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     description="Retrieve Performance Advisor suggestions for a MongoDB Atlas cluster including recommended indexes and slow query logs.",
     source="mongodb_atlas",
     surfaces=(ToolSurface.CHAT,),

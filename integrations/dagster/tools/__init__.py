@@ -5,6 +5,7 @@
 from typing import Any
 
 from core.domain.types.tools import ToolSurface
+from core.tool import SideEffectLevel
 from core.tool_framework import tool
 from integrations.dagster import (
     DagsterConfig,
@@ -16,6 +17,7 @@ from integrations.dagster import (
 
 @tool(
     name="list_dagster_assets",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     description="List Dagster assets and their latest materialization status.",
     source="dagster",
     surfaces=(ToolSurface.CHAT,),
@@ -49,6 +51,7 @@ from integrations.dagster import (
 
 @tool(
     name="get_dagster_run_logs",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     description=(
         "Fetch event logs and error details for a specific Dagster run. "
         "IMPORTANT: a single run may contain MULTIPLE step failures if ops "
@@ -99,6 +102,7 @@ from integrations.dagster import (
 
 @tool(
     name="list_dagster_runs",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     description=(
         "List recent Dagster pipeline/job runs with status and duration. "
         "When the alert specifies a pipeline name (commonly in its "
@@ -144,6 +148,7 @@ from integrations.dagster import (
 
 @tool(
     name="list_dagster_schedule_ticks",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     description=(
         "Fetch recent tick history for a Dagster schedule. The schedule is "
         "identified by all three ScheduleSelector coordinates: repository "
@@ -191,6 +196,7 @@ from integrations.dagster import (
 
 @tool(
     name="list_dagster_sensor_ticks",
+    side_effect_level=SideEffectLevel.READ_ONLY,
     description=(
         "Fetch recent tick history for a Dagster sensor. The sensor is "
         "identified by all three SensorSelector coordinates: repository "
