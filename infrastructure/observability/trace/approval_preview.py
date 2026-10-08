@@ -9,6 +9,7 @@ from functools import partial
 from typing import Any
 
 from infrastructure.observability.trace.redaction import redact_sensitive
+from infrastructure.text import json_size_up_to
 
 _TRUNCATED = "… [truncated]"
 _MIN_VALUE_CHARS = 16
@@ -57,6 +58,9 @@ def format_approval_preview(
     scrub_text: Callable[[str], str] | None = None,
 ) -> ApprovalPreview:
     """Shorten individual values, never drop fields to satisfy the display budget."""
+    size = json_size_up_to(value, _MAX_REVIEW_CHARS)
+    if size is not None and size > _MAX_REVIEW_CHARS:
+        return ApprovalPreview(_TOO_LARGE[:max_chars], fields_visible=False)
     try:
         safe = redact_sensitive(value)
         if scrub_text is not None:

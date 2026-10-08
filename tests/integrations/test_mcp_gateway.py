@@ -33,7 +33,7 @@ class TestMcpGatewayConfig:
             read_only_tools="status",
         )
 
-        assert config.url == "https://mcp.example.test/mcp"
+        assert config.url == "https://mcp.example.test/mcp/"
         assert config.auth_token == "secret"
         assert config.allowed_tools == ("restart_service", "status")
         assert config.read_only_tools == ("status",)
@@ -45,7 +45,12 @@ class TestMcpGatewayConfig:
     def test_url_normalization_preserves_query_value_trailing_slashes(self) -> None:
         config = McpGatewayConfig(url="https://mcp.example.test/mcp/?route=/api/")
 
-        assert config.url == "https://mcp.example.test/mcp?route=/api/"
+        assert config.url == "https://mcp.example.test/mcp/?route=/api/"
+
+    def test_url_normalization_preserves_repeated_trailing_path_slashes(self) -> None:
+        config = McpGatewayConfig(url="https://mcp.example.test/tenant//")
+
+        assert config.url == "https://mcp.example.test/tenant//"
 
     def test_rejects_non_loopback_http(self) -> None:
         with pytest.raises(ValidationError, match="must use https"):

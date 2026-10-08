@@ -443,7 +443,7 @@ def test_large_remote_results_stop_traversing_before_copying_all_data() -> None:
 def test_size_counting_handles_escaped_json_and_bounded_preview_secret_edges() -> None:
     import json
 
-    from integrations.mcp_gateway.payload_limits import json_size_up_to
+    from infrastructure.text import json_size_up_to
 
     payload = {"control": '\u0001\u007f\n\\"', "values": [None, True, -1, 1.5, "\U0001f680"]}
     assert json_size_up_to(payload, 1000) == len(json.dumps(payload, ensure_ascii=True))

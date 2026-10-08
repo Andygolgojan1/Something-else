@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 
 from infrastructure.observability.trace.approval_preview import format_approval_preview
 
@@ -42,6 +43,20 @@ def test_review_limit_and_non_json_values_never_authorize_partial_evidence() -> 
         preview = format_approval_preview(value, max_chars=400)
         assert not preview.fields_visible
         assert not preview.full_text
+
+
+def test_oversized_review_stops_before_copying_the_complete_argument_tree() -> None:
+    class BudgetedList(list[object]):
+        def __iter__(self) -> Iterator[object]:
+            for _ in range(100):
+                yield "x" * 1000
+            raise AssertionError("approval arguments traversed beyond the review budget")
+
+    preview = format_approval_preview(BudgetedList([None]), max_chars=400)
+
+    assert not preview.fields_visible
+    assert not preview.full_text
+    assert "complete review limit" in preview.text
 
 
 def test_keys_after_underscores_are_redacted_without_matching_ordinary_task_names() -> None:

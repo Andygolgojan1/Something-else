@@ -6,8 +6,8 @@ from typing import Any
 
 from core.tool_framework.utils import build_mcp_tool_listing
 from infrastructure.observability.trace.redaction import redact_sensitive
+from infrastructure.text import json_size_up_to
 from integrations.mcp_gateway.client import McpGatewayToolDescriptor
-from integrations.mcp_gateway.payload_limits import json_size_up_to
 from integrations.mcp_gateway.redaction import (
     public_tool_name,
     redacted_text_preview,

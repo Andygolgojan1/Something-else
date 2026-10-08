@@ -1,16 +1,29 @@
-"""Bound JSON counting without serializing or copying remote payloads."""
+"""Bound JSON counting without serializing or copying payloads."""
 
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable, Mapping
+from enum import Enum
 from typing import Any
 
 _MAX_JSON_DEPTH = 64
 
 
 def json_size_up_to(value: Any, limit: int) -> int | None:
-    """Count ASCII JSON characters up to a budget; excess counts are lower bounds."""
+    """Count ASCII JSON characters up to a budget; excess counts are lower bounds.
+
+    Pydantic-style models are walked through their declared fields rather than
+    dumped first, so callers can reject oversized remote objects without a
+    payload-sized intermediate allocation.
+    """
     size = 0
+
+    def model_items(item: Any) -> list[tuple[str, Any]] | None:
+        fields = getattr(type(item), "model_fields", None)
+        if not isinstance(fields, Mapping):
+            return None
+        return [(str(name), getattr(item, name)) for name in fields]
 
     def visit(item: Any, depth: int) -> None:
         nonlocal size
@@ -18,6 +31,7 @@ def json_size_up_to(value: Any, limit: int) -> int | None:
             return
         if depth > _MAX_JSON_DEPTH:
             raise ValueError("JSON nesting budget exceeded")
+        declared_items = model_items(item)
         if isinstance(item, str):
             if len(item) + 2 > limit - size:
                 size += len(item) + 2
@@ -41,9 +55,17 @@ def json_size_up_to(value: Any, limit: int) -> int | None:
             size += limit + 1 if item.bit_length() > limit * 4 else len(str(item))
         elif isinstance(item, float):
             size += (9 if item < 0 else 8) if math.isinf(item) else len(repr(item))
-        elif isinstance(item, dict):
+        elif isinstance(item, Enum):
+            visit(item.value, depth)
+        elif isinstance(item, dict) or declared_items is not None:
             size += 2
-            for index, (key, child) in enumerate(item.items()):
+            entries: Iterable[tuple[Any, Any]]
+            if isinstance(item, dict):
+                entries = item.items()
+            else:
+                assert declared_items is not None
+                entries = declared_items
+            for index, (key, child) in enumerate(entries):
                 if size > limit:
                     break
                 if not isinstance(key, str):
@@ -64,6 +86,9 @@ def json_size_up_to(value: Any, limit: int) -> int | None:
 
     try:
         visit(value, 0)
-    except (TypeError, ValueError, RecursionError):
+    except (AttributeError, TypeError, ValueError, RecursionError):
         return None
     return size
+
+
+__all__ = ["json_size_up_to"]

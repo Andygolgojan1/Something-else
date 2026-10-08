@@ -6,7 +6,7 @@ import json
 from typing import Any
 
 from infrastructure.observability.trace.redaction import redact_sensitive
-from integrations.mcp_gateway.payload_limits import json_size_up_to
+from infrastructure.text import json_size_up_to
 from integrations.mcp_gateway.redaction import redacted_text_preview, scrub_configured_token
 
 _MAX_RESULT_CHARS = 60_000

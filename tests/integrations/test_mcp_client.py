@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, cast
+from unittest.mock import patch
 
 import mcp_types as types
 import pytest
@@ -179,6 +180,32 @@ def test_shared_client_bounds_accumulated_tool_discovery(
     monkeypatch.setattr(mcp_client, "MCP_TOOL_LIST_MAX_SERIALIZED_CHARS", 100)
 
     with pytest.raises(RuntimeError, match="serialized-size safety limit"):
+        mcp_client.list_mcp_tools(_Config(), **_session_options())
+
+
+def test_shared_client_bounds_one_descriptor_without_serializing_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class OversizedSession(_Session):
+        async def list_tools(
+            self, *, params: types.PaginatedRequestParams | None = None
+        ) -> _ListToolsResult:
+            del params
+            return _ListToolsResult(
+                tools=[types.Tool(name="large", description="x" * 200, input_schema={})]
+            )
+
+    @asynccontextmanager
+    async def open_session(*_args: object, **_kwargs: object) -> AsyncIterator[OversizedSession]:
+        yield OversizedSession()
+
+    monkeypatch.setattr(mcp_client, "open_mcp_session", open_session)
+    monkeypatch.setattr(mcp_client, "MCP_TOOL_LIST_MAX_SERIALIZED_CHARS", 100)
+
+    with (
+        patch.object(types.Tool, "model_dump_json", side_effect=AssertionError),
+        pytest.raises(RuntimeError, match="serialized-size safety limit"),
+    ):
         mcp_client.list_mcp_tools(_Config(), **_session_options())
 
 

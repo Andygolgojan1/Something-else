@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlsplit
 
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
@@ -43,17 +43,8 @@ class McpGatewayConfig(StrictConfigModel):
             raise ValueError(
                 "MCP gateway URL must not contain credentials; use auth_token instead."
             )
-        normalized = urlunsplit(
-            (
-                parsed.scheme,
-                parsed.netloc,
-                parsed.path.rstrip("/"),
-                parsed.query,
-                parsed.fragment,
-            )
-        )
         return validate_https_or_loopback_http_url(
-            normalized,
+            raw,
             service_name="MCP gateway",
             field_name="URL",
         )

@@ -20,6 +20,7 @@ from config.constants.mcp import (
     MCP_TOOL_LIST_MAX_SERIALIZED_CHARS,
     MCP_TOOL_LIST_MAX_TOOLS,
 )
+from infrastructure.text import json_size_up_to
 from integrations.mcp_streamable_http_compat import streamable_http_client
 from integrations.mcp_transport import McpTransportMode
 
@@ -231,11 +232,13 @@ async def _list_tools_async(
                     raise RuntimeError(
                         "MCP tool listing exceeded the cumulative tool-count safety limit"
                     )
-                serialized_chars += len(tool.model_dump_json())
-                if serialized_chars > MCP_TOOL_LIST_MAX_SERIALIZED_CHARS:
+                remaining_chars = MCP_TOOL_LIST_MAX_SERIALIZED_CHARS - serialized_chars
+                descriptor_chars = json_size_up_to(tool, remaining_chars)
+                if descriptor_chars is None or descriptor_chars > remaining_chars:
                     raise RuntimeError(
                         "MCP tool listing exceeded the cumulative serialized-size safety limit"
                     )
+                serialized_chars += descriptor_chars
                 tools.append(tool)
             cursor = page.next_cursor
             if cursor is None:
