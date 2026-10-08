@@ -114,7 +114,7 @@ def test_natural_language_is_left_alone(text: str) -> None:
     ("raw", "expected"),
     [
         ('api_key="abc$def123"', "api_key=[REDACTED]"),
-        ('password="Correct Horse Battery Staple!"', "password=[REDACTED:password]"),
+        ('password="Correct Horse Battery Staple!"', "[REDACTED:password]"),
         ("secret='punctuation! stays hidden'", "secret=[REDACTED]"),
     ],
 )

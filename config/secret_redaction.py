@@ -63,7 +63,7 @@ def _build_default_rules() -> tuple[RedactionRule, ...]:
         (
             "password_arg",
             r"(?i)(--password=|password=)(?:\"[^\"\r\n]*\"|'[^'\r\n]*'|\S+)",
-            r"\1[REDACTED:password]",
+            "[REDACTED:password]",
         ),
         (
             "inline_credential",

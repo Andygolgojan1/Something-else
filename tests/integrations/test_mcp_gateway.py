@@ -143,9 +143,7 @@ def test_client_caps_tool_response_before_protocol_parsing() -> None:
 
 def test_oversized_mutation_response_reports_unknown_outcome() -> None:
     config = McpGatewayConfig(url="https://mcp.example.test/mcp")
-    failure = McpToolCallOutcomeUnknownError(
-        "MCP tool call failed after request dispatch began"
-    )
+    failure = McpToolCallOutcomeUnknownError("MCP tool call failed after request dispatch began")
     failure.__cause__ = McpResponseTooLargeError(
         "MCP HTTP response exceeded the configured byte limit"
     )
@@ -162,9 +160,7 @@ def test_oversized_mutation_response_reports_unknown_outcome() -> None:
 
 def test_disconnected_mutation_reports_unknown_outcome() -> None:
     config = McpGatewayConfig(url="https://mcp.example.test/mcp")
-    failure = McpToolCallOutcomeUnknownError(
-        "MCP tool call failed after request dispatch began"
-    )
+    failure = McpToolCallOutcomeUnknownError("MCP tool call failed after request dispatch began")
     failure.__cause__ = httpx.ReadError("connection reset")
     with (
         patch(
