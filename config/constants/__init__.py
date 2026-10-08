@@ -831,6 +831,9 @@ if TYPE_CHECKING:
         MCP_GATEWAY_READ_ONLY_TOOLS_ENV as MCP_GATEWAY_READ_ONLY_TOOLS_ENV,
     )
     from config.constants.mcp_gateway import (
+        MCP_GATEWAY_TOOL_RESPONSE_MAX_BYTES as MCP_GATEWAY_TOOL_RESPONSE_MAX_BYTES,
+    )
+    from config.constants.mcp_gateway import (
         MCP_GATEWAY_URL_ENV as MCP_GATEWAY_URL_ENV,
     )
     from config.constants.memory import (

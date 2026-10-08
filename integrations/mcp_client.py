@@ -333,9 +333,14 @@ async def _call_tool_async(
     arguments: dict[str, object] | None,
     *,
     timeout_call: bool,
+    response_byte_limit: int | None,
     **session_options: Unpack[McpSessionOptions],
 ) -> dict[str, object]:
-    async with open_mcp_session(config, **session_options) as session:
+    async with open_mcp_session(
+        config,
+        response_byte_limit=response_byte_limit,
+        **session_options,
+    ) as session:
         call = session.call_tool(tool_name, arguments or {})
         result = (
             await asyncio.wait_for(call, timeout=config.timeout_seconds)
@@ -355,6 +360,7 @@ def call_mcp_tool(
     *,
     timeout_call: bool,
     timeout_entire_operation: bool = False,
+    response_byte_limit: int | None = None,
     **session_options: Unpack[McpSessionOptions],
 ) -> dict[str, object]:
     """Call an MCP tool and normalize its result."""
@@ -363,6 +369,7 @@ def call_mcp_tool(
         tool_name,
         arguments,
         timeout_call=timeout_call,
+        response_byte_limit=response_byte_limit,
         **session_options,
     )
     if timeout_entire_operation:

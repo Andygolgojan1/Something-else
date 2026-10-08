@@ -10,6 +10,7 @@ import mcp_types as types
 import pytest
 from pydantic import ValidationError
 
+from config.constants.mcp_gateway import MCP_GATEWAY_TOOL_RESPONSE_MAX_BYTES
 from integrations.mcp_gateway import (
     McpGatewayClient,
     McpGatewayConfig,
@@ -118,6 +119,25 @@ def test_client_refuses_unknown_advertised_tool_before_invocation() -> None:
     ):
         McpGatewayClient(config).call_tool("missing", {})
     call_tool.assert_not_called()
+
+
+def test_client_caps_tool_response_before_protocol_parsing() -> None:
+    config = McpGatewayConfig(url="https://mcp.example.test/mcp")
+    with (
+        patch(
+            "integrations.mcp_gateway.client.list_mcp_tools",
+            return_value=[types.Tool(name="status", input_schema={})],
+        ),
+        patch(
+            "integrations.mcp_gateway.client.call_mcp_tool",
+            return_value={"tool": "status", "content": []},
+        ) as call_tool,
+    ):
+        McpGatewayClient(config).call_tool("status")
+
+    assert call_tool.call_args.kwargs["response_byte_limit"] == (
+        MCP_GATEWAY_TOOL_RESPONSE_MAX_BYTES
+    )
 
 
 def test_client_reports_the_effective_timeout() -> None:

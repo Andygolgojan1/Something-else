@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TypedDict
 
+from config.constants.mcp_gateway import MCP_GATEWAY_TOOL_RESPONSE_MAX_BYTES
 from integrations.mcp_client import McpSessionOptions, call_mcp_tool, list_mcp_tools
 from integrations.mcp_gateway.config import McpGatewayConfig
 from integrations.mcp_gateway.errors import McpGatewayRefused, safe_request_error
@@ -112,6 +113,7 @@ class McpGatewayClient:
                 arguments,
                 timeout_call=False,
                 timeout_entire_operation=True,
+                response_byte_limit=MCP_GATEWAY_TOOL_RESPONSE_MAX_BYTES,
                 **self._session_options(),
             )
         except Exception as exc:

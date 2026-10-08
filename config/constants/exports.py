@@ -345,6 +345,7 @@ EXPORTS: dict[str, str] = {
     "MCP_GATEWAY_ALLOWED_TOOLS_ENV": "mcp_gateway",
     "MCP_GATEWAY_AUTH_TOKEN_ENV": "mcp_gateway",
     "MCP_GATEWAY_DEFAULT_TIMEOUT_SECONDS": "mcp_gateway",
+    "MCP_GATEWAY_TOOL_RESPONSE_MAX_BYTES": "mcp_gateway",
     "MCP_GATEWAY_READ_ONLY_TOOLS_ENV": "mcp_gateway",
     "MCP_GATEWAY_URL_ENV": "mcp_gateway",
     # conversation history
