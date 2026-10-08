@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import AsyncIterator, Coroutine, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, Mapping
 from contextlib import AsyncExitStack, asynccontextmanager
 from typing import TYPE_CHECKING, NotRequired, Protocol, Unpack, cast
 
@@ -17,6 +17,7 @@ from config.constants.mcp import (
     MCP_TERMINAL_DUMB_VALUE,
     MCP_TERMINAL_ENV,
     MCP_TOOL_LIST_MAX_PAGES,
+    MCP_TOOL_LIST_MAX_RESPONSE_BYTES,
     MCP_TOOL_LIST_MAX_SERIALIZED_CHARS,
     MCP_TOOL_LIST_MAX_TOOLS,
 )
@@ -56,6 +57,57 @@ class McpClientConfig(Protocol):
         """Return headers for HTTP-based MCP transports."""
 
 
+class McpResponseTooLargeError(httpx.StreamError):
+    """Raised before an MCP HTTP response can exceed its byte budget."""
+
+
+class _BoundedResponseStream(httpx.AsyncByteStream):
+    """Stop consuming an HTTP response once its wire-byte budget is exhausted."""
+
+    def __init__(self, stream: httpx.AsyncByteStream, limit: int) -> None:
+        self._stream = stream
+        self._limit = limit
+        self._received = 0
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        async for chunk in self._stream:
+            self._received += len(chunk)
+            if self._received > self._limit:
+                await self.aclose()
+                raise McpResponseTooLargeError(
+                    "MCP HTTP response exceeded the configured byte limit"
+                )
+            yield chunk
+
+    async def aclose(self) -> None:
+        await self._stream.aclose()
+
+
+def _response_size_hook(limit: int) -> Callable[[httpx.Response], Awaitable[None]]:
+    async def _enforce(response: httpx.Response) -> None:
+        if response.request.method != "POST":
+            return
+        content_encoding = response.headers.get("content-encoding", "identity").lower()
+        if content_encoding not in {"", "identity"}:
+            await response.aclose()
+            raise McpResponseTooLargeError(
+                "MCP HTTP response compression is disabled while enforcing the byte limit"
+            )
+        content_length = response.headers.get("content-length")
+        try:
+            declared_length = int(content_length) if content_length is not None else None
+        except ValueError:
+            declared_length = None
+        if declared_length is not None and declared_length > limit:
+            await response.aclose()
+            raise McpResponseTooLargeError("MCP HTTP response exceeded the configured byte limit")
+        response.stream = _BoundedResponseStream(
+            cast(httpx.AsyncByteStream, response.stream), limit
+        )
+
+    return _enforce
+
+
 class McpSessionOptions(TypedDict):
     """Vendor-specific values needed to establish an MCP session."""
 
@@ -77,6 +129,7 @@ async def open_mcp_session(
     config_env_name: str,
     sse_url_hint: str | None = None,
     streamable_url_hint: str | None = None,
+    response_byte_limit: int | None = None,
 ) -> AsyncIterator[ClientSession]:
     """Open and initialize an MCP session for one configured integration."""
     from mcp.client.session import ClientSession  # type: ignore[import-not-found]
@@ -128,17 +181,23 @@ async def open_mcp_session(
                     f"(set {config_env_name}_URL{hint})."
                 )
             read_timeout = max(60.0, config.timeout_seconds)
+            headers = dict(config.request_headers)
+            event_hooks = None
+            if response_byte_limit is not None:
+                headers["Accept-Encoding"] = "identity"
+                event_hooks = {"response": [_response_size_hook(response_byte_limit)]}
             http_client = await stack.enter_async_context(
                 httpx.AsyncClient(
-                    headers=config.request_headers,
+                    headers=headers,
                     timeout=httpx.Timeout(config.timeout_seconds, read=read_timeout),
+                    event_hooks=event_hooks,
                 )
             )
             read_stream, write_stream, _ = await stack.enter_async_context(
                 streamable_http_client(
                     session_url,
                     http_client=http_client,
-                    headers=config.request_headers,
+                    headers=headers,
                     timeout=config.timeout_seconds,
                     sse_read_timeout=read_timeout,
                 )
@@ -219,7 +278,11 @@ async def _list_tools_async(
     config: McpClientConfig,
     **session_options: Unpack[McpSessionOptions],
 ) -> list[types.Tool]:
-    async with open_mcp_session(config, **session_options) as session:
+    async with open_mcp_session(
+        config,
+        response_byte_limit=MCP_TOOL_LIST_MAX_RESPONSE_BYTES,
+        **session_options,
+    ) as session:
         tools: list[types.Tool] = []
         serialized_chars = 0
         cursor: str | None = None

@@ -810,6 +810,9 @@ if TYPE_CHECKING:
         MCP_TOOL_LIST_MAX_PAGES as MCP_TOOL_LIST_MAX_PAGES,
     )
     from config.constants.mcp import (
+        MCP_TOOL_LIST_MAX_RESPONSE_BYTES as MCP_TOOL_LIST_MAX_RESPONSE_BYTES,
+    )
+    from config.constants.mcp import (
         MCP_TOOL_LIST_MAX_SERIALIZED_CHARS as MCP_TOOL_LIST_MAX_SERIALIZED_CHARS,
     )
     from config.constants.mcp import (

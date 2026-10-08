@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 from unittest.mock import patch
 
+import httpx
 import mcp_types as types
 import pytest
 
@@ -209,6 +210,89 @@ def test_shared_client_bounds_one_descriptor_without_serializing_it(
         mcp_client.list_mcp_tools(_Config(), **_session_options())
 
 
+class _ChunkedResponseStream(httpx.AsyncByteStream):
+    def __init__(self, chunks: list[bytes]) -> None:
+        self._chunks = chunks
+        self.chunks_read = 0
+        self.closed = False
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        for chunk in self._chunks:
+            self.chunks_read += 1
+            yield chunk
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+def test_tool_discovery_stops_reading_a_chunked_oversized_response() -> None:
+    stream = _ChunkedResponseStream([b"1234", b"56", b"unread"])
+    response = httpx.Response(
+        200,
+        request=httpx.Request("POST", "https://mcp.example.test/mcp"),
+        stream=stream,
+    )
+
+    async def consume() -> None:
+        await mcp_client._response_size_hook(5)(response)
+        await response.aread()
+
+    with pytest.raises(mcp_client.McpResponseTooLargeError, match="byte limit"):
+        asyncio.run(consume())
+
+    assert stream.chunks_read == 2
+    assert stream.closed is True
+
+
+def test_tool_discovery_rejects_declared_oversized_response_before_reading() -> None:
+    stream = _ChunkedResponseStream([b"unread"])
+    response = httpx.Response(
+        200,
+        headers={"Content-Length": "6"},
+        request=httpx.Request("POST", "https://mcp.example.test/mcp"),
+        stream=stream,
+    )
+
+    with pytest.raises(mcp_client.McpResponseTooLargeError, match="byte limit"):
+        asyncio.run(mcp_client._response_size_hook(5)(response))
+
+    assert stream.chunks_read == 0
+    assert stream.closed is True
+
+
+def test_tool_discovery_rejects_compressed_responses_before_decoding() -> None:
+    stream = _ChunkedResponseStream([b"unread"])
+    response = httpx.Response(
+        200,
+        headers={"Content-Encoding": "gzip"},
+        request=httpx.Request("POST", "https://mcp.example.test/mcp"),
+        stream=stream,
+    )
+
+    with pytest.raises(mcp_client.McpResponseTooLargeError, match="compression is disabled"):
+        asyncio.run(mcp_client._response_size_hook(5)(response))
+
+    assert stream.chunks_read == 0
+    assert stream.closed is True
+
+
+def test_tool_discovery_opens_session_with_wire_response_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    @asynccontextmanager
+    async def open_session(*_args: object, **kwargs: object) -> AsyncIterator[_Session]:
+        captured.update(kwargs)
+        yield _Session()
+
+    monkeypatch.setattr(mcp_client, "open_mcp_session", open_session)
+
+    mcp_client.list_mcp_tools(_Config(), **_session_options())
+
+    assert captured["response_byte_limit"] == mcp_client.MCP_TOOL_LIST_MAX_RESPONSE_BYTES
+
+
 def test_shared_client_keeps_vendor_timeout_copy_for_chained_timeout() -> None:
     outer = RuntimeError("request failed")
     outer.__cause__ = TimeoutError()
@@ -335,11 +419,17 @@ def test_open_session_characterizes_streamable_http_wiring(
     )
     config = _Config(timeout_seconds=7.0)
 
-    asyncio.run(_consume_session(config))
+    asyncio.run(_consume_session(config, response_byte_limit=123))
 
     http_client = captured["http_client"]
     assert isinstance(http_client, dict)
-    assert http_client["headers"] == {"Authorization": "Bearer token"}
+    assert http_client["headers"] == {
+        "Authorization": "Bearer token",
+        "Accept-Encoding": "identity",
+    }
+    hooks = cast(dict[str, list[object]], http_client["event_hooks"])
+    assert len(hooks["response"]) == 1
+    assert callable(hooks["response"][0])
     timeout = http_client["timeout"]
     assert isinstance(timeout, mcp_client.httpx.Timeout)
     assert timeout.connect == 7.0
@@ -348,15 +438,18 @@ def test_open_session_characterizes_streamable_http_wiring(
         "args": ("https://mcp.example.test/mcp",),
         "kwargs": {
             "http_client": "client",
-            "headers": {"Authorization": "Bearer token"},
+            "headers": {
+                "Authorization": "Bearer token",
+                "Accept-Encoding": "identity",
+            },
             "timeout": 7.0,
             "sse_read_timeout": 60.0,
         },
     }
 
 
-async def _consume_session(config: _Config) -> None:
-    async with mcp_client.open_mcp_session(config, **_session_options()):
+async def _consume_session(config: _Config, **kwargs: object) -> None:
+    async with mcp_client.open_mcp_session(config, **_session_options(), **kwargs):
         return None
 
 
