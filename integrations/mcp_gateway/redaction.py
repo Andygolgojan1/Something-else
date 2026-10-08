@@ -18,8 +18,11 @@ def redacted_text_preview(text: str, auth_token: str, *, max_chars: int) -> str:
     if len(text) <= max_chars:
         return redact_text(scrub_configured_token(text, auth_token))
     if len(auth_token) > max_chars:
-        return "[oversized value omitted]"
-    window = text[: max_chars + len(auth_token)]
+        if auth_token in text:
+            return "[oversized value omitted]"
+        window = text[:max_chars]
+    else:
+        window = text[: max_chars + len(auth_token)]
     safe = redact_text(scrub_configured_token(window, auth_token))
     safe = _INCOMPLETE_PRIVATE_KEY.sub("[REDACTED:private_key]", safe)
     if len(safe) > max_chars:

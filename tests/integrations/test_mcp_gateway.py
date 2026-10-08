@@ -21,7 +21,7 @@ from integrations.mcp_gateway import (
     describe_mcp_gateway_error,
     validate_mcp_gateway_config,
 )
-from integrations.mcp_gateway.redaction import public_tool_name
+from integrations.mcp_gateway.redaction import public_tool_name, redacted_text_preview
 from integrations.mcp_gateway.setup import MCP_GATEWAY_SETUP
 from integrations.registry import service_key
 
@@ -394,6 +394,27 @@ def test_successful_payloads_redact_unconfigured_gitlab_tokens() -> None:
         result = McpGatewayClient(config).call_tool("status")
 
     assert token not in repr(result)
+
+
+def test_long_auth_token_does_not_erase_unrelated_preview() -> None:
+    auth_token = "header." + "A" * 1_024 + ".signature"
+    preview = redacted_text_preview(
+        "Unrelated diagnostic description " * 20,
+        auth_token,
+        max_chars=128,
+    )
+
+    assert preview != "[oversized value omitted]"
+    assert preview.endswith(" [truncated]")
+
+
+def test_long_auth_token_occurrence_omits_unsafe_preview() -> None:
+    auth_token = "header." + "A" * 1_024 + ".signature"
+
+    assert (
+        redacted_text_preview(f"unsafe {auth_token} value", auth_token, max_chars=128)
+        == "[oversized value omitted]"
+    )
 
 
 def test_alias_collision_cannot_select_another_advertised_tool() -> None:
